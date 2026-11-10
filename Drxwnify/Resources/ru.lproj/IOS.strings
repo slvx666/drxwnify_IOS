@@ -1,0 +1,23 @@
+/* Строки, которых нет на Android. */
+"mini_player_nothing" = "Ничего не играет";
+"mini_player_stub_artist" = "Плеер появится на этапе 3";
+"stage_placeholder" = "Раздел в разработке";
+
+"ios_backup_pick_file" = "Выбрать файл копии";
+"ios_backup_restore_note" = "Подходит копия из Drxwnify для Android (файл .backup). Текущие данные приложения будут заменены.";
+"ios_backup_restore_confirm_title" = "Заменить данные?";
+"ios_backup_restore_confirm_text" = "Медиатека, настройки и входы в аккаунты будут заменены данными из копии.";
+"ios_backup_restoring" = "Восстанавливаем…";
+"ios_backup_creating" = "Создаём копию…";
+"ios_backup_restored" = "Копия восстановлена";
+"ios_backup_now" = "Сейчас в приложении";
+"ios_backup_in_file" = "В копии";
+"ios_backup_settings_count" = "Настроек";
+"ios_backup_prefs_files" = "Файлов данных";
+"ios_backup_covers" = "Обложек плейлистов";
+"ios_backup_schema" = "Версия базы";
+"ios_backup_accounts" = "Аккаунты в копии";
+"ios_backup_friends_key" = "Профиль друзей";
+"ios_backup_none" = "нет";
+"ios_backup_newer_schema" = "База из более новой версии Android (схема %d). Новые поля будут пропущены.";
+"ios_restore" = "Заменить";

@@ -1,0 +1,23 @@
+/* Strings that Android does not have. */
+"mini_player_nothing" = "Nothing is playing";
+"mini_player_stub_artist" = "The player arrives in stage 3";
+"stage_placeholder" = "Section in progress";
+
+"ios_backup_pick_file" = "Choose a backup file";
+"ios_backup_restore_note" = "A backup from Drxwnify for Android (.backup file) works here. The app's current data will be replaced.";
+"ios_backup_restore_confirm_title" = "Replace data?";
+"ios_backup_restore_confirm_text" = "Your library, settings and account logins will be replaced with the data from the backup.";
+"ios_backup_restoring" = "Restoring…";
+"ios_backup_creating" = "Creating a backup…";
+"ios_backup_restored" = "Backup restored";
+"ios_backup_now" = "In the app now";
+"ios_backup_in_file" = "In the backup";
+"ios_backup_settings_count" = "Settings";
+"ios_backup_prefs_files" = "Data files";
+"ios_backup_covers" = "Playlist covers";
+"ios_backup_schema" = "Database version";
+"ios_backup_accounts" = "Accounts in the backup";
+"ios_backup_friends_key" = "Friends profile";
+"ios_backup_none" = "none";
+"ios_backup_newer_schema" = "The database comes from a newer Android version (schema %d). New fields will be skipped.";
+"ios_restore" = "Replace";

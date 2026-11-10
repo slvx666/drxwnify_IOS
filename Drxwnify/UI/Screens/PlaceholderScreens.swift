@@ -25,6 +25,9 @@ struct HomeScreen: View {
     var body: some View {
         StagePlaceholder(systemImage: "house", note: appVersionLine)
             .navigationTitle(L("home"))
+            .navigationBarItems(trailing: NavigationLink(destination: SettingsScreen()) {
+                Image(systemName: "gearshape")
+            })
     }
 
     private var appVersionLine: String {

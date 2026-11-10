@@ -1,0 +1,162 @@
+import SwiftUI
+
+/// Резервное копирование (SYS-200, SYS-201): копия в формате Android.
+struct BackupScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
+
+    private enum Busy { case none, restoring, creating }
+
+    private struct Notice: Identifiable {
+        let id = UUID()
+        let title: String
+        let text: String
+    }
+
+    private struct SharedFile: Identifiable {
+        let id = UUID()
+        let url: URL
+    }
+
+    @State private var busy = Busy.none
+    @State private var current = BackupManager.Summary()
+    @State private var restored: BackupManager.Summary?
+    @State private var showPicker = false
+    @State private var pendingURL: URL?
+    @State private var showConfirm = false
+    @State private var notice: Notice?
+    @State private var shared: SharedFile?
+
+    var body: some View {
+        List {
+            Section(footer: Text(L("ios_backup_restore_note"))) {
+                Button(action: { showPicker = true }) {
+                    Label(L("action_restore"), systemImage: "square.and.arrow.down")
+                }
+                Button(action: createBackup) {
+                    Label(L("action_backup"), systemImage: "square.and.arrow.up")
+                }
+            }
+            .disabled(busy != .none)
+
+            if busy != .none {
+                Section {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text(L(busy == .restoring ? "ios_backup_restoring" : "ios_backup_creating"))
+                    }
+                }
+            }
+
+            if let restored = restored {
+                summarySection(L("ios_backup_in_file"), restored)
+            }
+            summarySection(L("ios_backup_now"), current)
+        }
+        .listStyle(InsetGroupedListStyle())
+        .navigationTitle(L("backup_restore"))
+        .miniPlayerInset()
+        .onAppear(perform: reload)
+        .sheet(isPresented: $showPicker) {
+            DocumentPicker { url in
+                pendingURL = url
+                // Алерт нельзя показать, пока закрывается лист выбора файла.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showConfirm = true }
+            }
+        }
+        .sheet(item: $shared) { file in
+            ShareSheet(items: [file.url])
+        }
+        .background(
+            EmptyView().alert(isPresented: $showConfirm) {
+                Alert(
+                    title: Text(L("ios_backup_restore_confirm_title")),
+                    message: Text(L("ios_backup_restore_confirm_text")),
+                    primaryButton: .destructive(Text(L("ios_restore")), action: restoreBackup),
+                    secondaryButton: .cancel { pendingURL = nil }
+                )
+            }
+        )
+        .alert(item: $notice) { notice in
+            Alert(title: Text(notice.title), message: Text(notice.text), dismissButton: .default(Text("OK")))
+        }
+    }
+
+    private func summarySection(_ title: String, _ s: BackupManager.Summary) -> some View {
+        Section(header: Text(title)) {
+            row(L("songs"), s.counts["song"])
+            row(L("artists"), s.counts["artist"])
+            row(L("albums"), s.counts["album"])
+            row(L("playlists"), s.counts["playlist"])
+            row(L("history"), s.counts["event"])
+            row(L("ios_backup_settings_count"), s.settingsCount)
+            row(L("ios_backup_prefs_files"), s.sharedFiles.count)
+            row(L("ios_backup_covers"), s.covers)
+            row(L("ios_backup_schema"), s.schemaVersion)
+            textRow(L("ios_backup_accounts"), s.accounts.isEmpty ? L("ios_backup_none") : s.accounts.joined(separator: ", "))
+            textRow(L("ios_backup_friends_key"), s.hasFriendsKey ? "✓" : L("ios_backup_none"))
+        }
+    }
+
+    private func row(_ title: String, _ value: Int?) -> some View {
+        textRow(title, value.map(String.init) ?? "—")
+    }
+
+    private func textRow(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value).foregroundColor(.secondary).multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func reload() {
+        let backup = env.backup
+        DispatchQueue.global(qos: .userInitiated).async {
+            let summary = backup.currentSummary()
+            DispatchQueue.main.async { current = summary }
+        }
+    }
+
+    private func restoreBackup() {
+        guard let url = pendingURL else { return }
+        pendingURL = nil
+        busy = .restoring
+        let backup = env.backup
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try backup.restore(from: url) }
+            try? FileManager.default.removeItem(at: url)
+            DispatchQueue.main.async {
+                busy = .none
+                switch result {
+                case .success(let summary):
+                    restored = summary
+                    var text = ""
+                    if summary.schemaVersion > AppDatabase.schemaVersion {
+                        text = L("ios_backup_newer_schema", summary.schemaVersion)
+                    }
+                    notice = Notice(title: L("ios_backup_restored"), text: text)
+                case .failure(let error):
+                    notice = Notice(title: L("restore_failed"), text: error.localizedDescription)
+                }
+                reload()
+            }
+        }
+    }
+
+    private func createBackup() {
+        busy = .creating
+        let backup = env.backup
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try backup.create() }
+            DispatchQueue.main.async {
+                busy = .none
+                switch result {
+                case .success(let url):
+                    shared = SharedFile(url: url)
+                case .failure(let error):
+                    notice = Notice(title: L("backup_create_failed"), text: error.localizedDescription)
+                }
+            }
+        }
+    }
+}

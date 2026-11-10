@@ -13,6 +13,10 @@ $outDir = Join-Path $iosDir 'out'
 New-Item -ItemType Directory -Force $outDir | Out-Null
 $log = Join-Path $outDir 'last-build.log'
 
+# Системный OpenSSH: у ssh из Git for Windows другие правила экранирования аргументов.
+$sshDir = Join-Path $env:SystemRoot 'System32\OpenSSH'
+$ssh = Join-Path $sshDir 'ssh.exe'; if (-not (Test-Path $ssh)) { $ssh = 'ssh' }
+$scp = Join-Path $sshDir 'scp.exe'; if (-not (Test-Path $scp)) { $scp = 'scp' }
 $sshOpts = @('-i', $SshKey, '-o', "UserKnownHostsFile=$KnownHosts", '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20')
 
 $m = Select-String -Path (Join-Path $iosDir 'project.yml') -Pattern 'MARKETING_VERSION:\s*"?([0-9.]+)"?' | Select-Object -First 1
@@ -29,18 +33,18 @@ if (Test-Path $tar) { Remove-Item $tar -Force }
 if ($LASTEXITCODE -ne 0) { Write-Output 'error: tar не собрал архив'; exit 1 }
 
 # 2. Копия на VM
-& scp @sshOpts -P $Port -q $tar "${Remote}:drxwnify-ios-src.tar"
+& $scp @sshOpts -P $Port -q $tar "${Remote}:drxwnify-ios-src.tar"
 if ($LASTEXITCODE -ne 0) { Write-Output 'error: VM не отвечает по SSH (запусти D:\macos\start-docker.ps1)'; exit 1 }
 Remove-Item $tar -Force
 
 # 3. Сборка
 $remoteCmd = 'rm -rf ~/drxwnify-ios && mkdir -p ~/drxwnify-ios && tar -xf ~/drxwnify-ios-src.tar -C ~/drxwnify-ios 2>/dev/null; ' +
              'cd ~/drxwnify-ios && tr -d \\r < scripts/remote-build.sh > ~/drxwnify-remote-build.sh && bash ~/drxwnify-remote-build.sh'
-& ssh @sshOpts -p $Port $Remote $remoteCmd
+& $ssh @sshOpts -p $Port $Remote $remoteCmd
 $rc = $LASTEXITCODE
 
 # 4. Лог обратно
-& scp @sshOpts -P $Port -q "${Remote}:drxwnify-ios/build.log" $log
+& $scp @sshOpts -P $Port -q "${Remote}:drxwnify-ios/build.log" $log
 
 if ($rc -ne 0) {
     Write-Output "СБОРКА УПАЛА (код $rc). Полный лог: $log"
@@ -60,7 +64,7 @@ if ($rc -ne 0) {
 
 # 5. .ipa обратно
 $ipa = Join-Path $outDir "Drxwnify-$version.ipa"
-& scp @sshOpts -P $Port -q "${Remote}:drxwnify-ios/out/Drxwnify.ipa" $ipa
+& $scp @sshOpts -P $Port -q "${Remote}:drxwnify-ios/out/Drxwnify.ipa" $ipa
 if ($LASTEXITCODE -ne 0) { Write-Output 'error: не удалось забрать .ipa'; exit 1 }
 
 $warn = (Select-String -Path $log -Pattern 'warning:' | Measure-Object).Count
