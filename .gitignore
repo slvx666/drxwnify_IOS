@@ -1,0 +1,7 @@
+out/
+*.xcodeproj
+DerivedData/
+.build/
+build/
+Generated/
+.DS_Store

@@ -1,0 +1,51 @@
+name: Drxwnify
+options:
+  bundleIdPrefix: com.drxwnify
+  deploymentTarget:
+    iOS: "14.0"
+  developmentLanguage: ru
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_BITCODE: "NO"
+    SWIFT_STRICT_CONCURRENCY: minimal
+targets:
+  Drxwnify:
+    type: application
+    platform: iOS
+    sources:
+      - path: Drxwnify
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Drxwnify
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleLocalizations: [ru, en]
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIBackgroundModes: [audio]
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        CFBundleURLTypes:
+          - CFBundleURLName: com.drxwnify.ios
+            CFBundleURLSchemes: [drxwnify]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.drxwnify.ios
+        PRODUCT_NAME: Drxwnify
+schemes:
+  Drxwnify:
+    build:
+      targets:
+        Drxwnify: all
+    run:
+      config: Debug
+    archive:
+      config: Release

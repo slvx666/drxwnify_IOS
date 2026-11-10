@@ -1,0 +1,11 @@
+/* Имена ключей = имена строк Android (res/values-ru/strings.xml). Свои ключи iOS идут в конце. */
+"home" = "Главная";
+"search" = "Поиск";
+"together" = "Вместе";
+"filter_library" = "Библиотека";
+"play" = "Играть";
+
+/* iOS */
+"mini_player_nothing" = "Ничего не играет";
+"mini_player_stub_artist" = "Плеер появится на этапе 3";
+"stage_placeholder" = "Раздел в разработке";

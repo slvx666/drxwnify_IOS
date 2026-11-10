@@ -1,0 +1,11 @@
+/* Key names = Android string names (res/values/strings.xml). iOS-only keys go last. */
+"home" = "Home";
+"search" = "Search";
+"together" = "Together";
+"filter_library" = "Library";
+"play" = "Play";
+
+/* iOS */
+"mini_player_nothing" = "Nothing is playing";
+"mini_player_stub_artist" = "The player arrives in stage 3";
+"stage_placeholder" = "Section in progress";
