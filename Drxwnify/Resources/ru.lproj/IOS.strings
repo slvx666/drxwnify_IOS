@@ -21,3 +21,11 @@
 "ios_backup_none" = "нет";
 "ios_backup_newer_schema" = "База из более новой версии Android (схема %d). Новые поля будут пропущены.";
 "ios_restore" = "Заменить";
+
+"ios_folder" = "Папка";
+"ios_compilations" = "Сборники";
+"ios_spotify_logout_confirm" = "Выйти из Spotify?";
+"ios_accounts" = "Аккаунты";
+"ios_playlist" = "Плейлист";
+"ios_album" = "Альбом";
+"ios_artist" = "Исполнитель";

@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "3"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: "NO"
     SWIFT_STRICT_CONCURRENCY: minimal
@@ -18,6 +18,9 @@ packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
     exactVersion: 7.12.0
+  Nuke:
+    url: https://github.com/kean/Nuke
+    exactVersion: 12.8.0
 targets:
   Drxwnify:
     type: application
@@ -27,6 +30,8 @@ targets:
     dependencies:
       - package: GRDB
         product: GRDB
+      - package: Nuke
+        product: Nuke
       - sdk: libz.tbd
     info:
       path: Generated/Info.plist

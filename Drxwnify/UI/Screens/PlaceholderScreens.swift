@@ -51,10 +51,3 @@ struct TogetherScreen: View {
             .navigationTitle(L("together"))
     }
 }
-
-struct LibraryScreen: View {
-    var body: some View {
-        StagePlaceholder(systemImage: "music.note.list", note: "")
-            .navigationTitle(L("filter_library"))
-    }
-}

@@ -21,3 +21,11 @@
 "ios_backup_none" = "none";
 "ios_backup_newer_schema" = "The database comes from a newer Android version (schema %d). New fields will be skipped.";
 "ios_restore" = "Replace";
+
+"ios_folder" = "Folder";
+"ios_compilations" = "Compilations";
+"ios_spotify_logout_confirm" = "Sign out of Spotify?";
+"ios_accounts" = "Accounts";
+"ios_playlist" = "Playlist";
+"ios_album" = "Album";
+"ios_artist" = "Artist";

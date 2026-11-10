@@ -7,12 +7,21 @@ final class AppEnvironment: ObservableObject {
     let database: AppDatabase
     let backup: BackupManager
     let player: PlayerController
+    let spotifyTokens: SpotifyTokenManager
+    let spotifyHashes: SpotifyHashes
+    let spotify: SpotifyAPI
 
     init() {
         prefs = Prefs()
         database = Self.openDatabase()
         backup = BackupManager(prefs: prefs, database: database)
         player = PlayerController()
+        spotifyTokens = SpotifyTokenManager(settings: prefs.settings)
+        spotifyHashes = SpotifyHashes(settings: prefs.settings)
+        spotify = SpotifyAPI(tokens: spotifyTokens, hashes: spotifyHashes)
+        // Свежие GQL-хеши при каждом запуске (INT-006).
+        let hashes = spotifyHashes
+        Task.detached { await hashes.sync() }
     }
 
     /// Открывает базу; повреждённый файл откладывает в сторону и создаёт новый.

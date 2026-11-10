@@ -11,6 +11,10 @@ SOURCES=(
   Drxwnify/Storage/Prefs/PreferencesProto.swift
   Drxwnify/Storage/Prefs/AndroidPrefsXML.swift
   Drxwnify/Storage/Zip/ZipArchive.swift
+  Drxwnify/Support/HTTP.swift
+  Drxwnify/Support/JSON.swift
+  Drxwnify/Spotify/SpotifyModels.swift
+  Drxwnify/Spotify/SpotifyAuth.swift
 )
 
 python3 scripts/test_fixtures.py make Drxwnify/Resources/Schema/song_v40.sql "$T/android.backup"

@@ -3,25 +3,26 @@
 Точка продолжения. Задание: `../IOS_BUILD_PROMPT.md`. Решения: `DECISIONS.md`. Проблемы: `KNOWN_ISSUES.md`.
 
 Сборка: `powershell -ExecutionPolicy Bypass -File ios\scripts\build.ps1` → `ios\out\Drxwnify-<версия>.ipa`.
-Проверки формата на VM: `powershell -ExecutionPolicy Bypass -File ios\scripts\test.ps1 -Sync`.
+Проверки на VM (формат копии, TOTP): `powershell -ExecutionPolicy Bypass -File ios\scripts\test.ps1 -Sync`.
+Сборку запускать из PowerShell, по одной; первая сборка после смены пакетов идёт 10+ минут.
 
 ## Этапы
 
 | Этап | Что | Статус |
 |---|---|---|
-| 0 | Конвейер, каркас, 4 вкладки, мини-плеер | готово, закоммичено (`Drxwnify-0.1.0.ipa`), ждёт проверки на телефоне |
-| 1 | Хранилище, настройки, импорт бэкапа | готово (`Drxwnify-0.2.0.ipa`), ждёт проверки на телефоне |
-| 2 | Spotify | начат: написана часть кода, не собиралось |
-| 3–14 | см. задание | не начаты |
+| 0 | Конвейер, каркас, 4 вкладки, мини-плеер | готово (`Drxwnify-0.1.0.ipa`) |
+| 1 | Хранилище, настройки, импорт бэкапа | готово (`Drxwnify-0.2.0.ipa`), на телефоне не проверено |
+| 2 | Spotify: вход, токен, медиатека | готово (`Drxwnify-0.3.0.ipa`), на телефоне не проверено |
+| 3 | Плеер | не начат |
+| 4–14 | см. задание | не начаты |
 
-## С чего продолжить (сессия оборвалась по лимиту)
+На телефоне пока не подтверждён ни один этап: пользователь ещё не ставил `.ipa`.
 
-1. Сборка этапа 1 была запущена и шла (первая компиляция GRDB на VM очень долгая), результат не проверен.
-   Запустить `build.ps1` заново и чинить ошибки. Сборку запускать только из PowerShell
-   (в Git Bash подхватывается чужой `ssh`; скрипты уже закреплены на `System32\OpenSSH`).
-2. **До сборки** добавить в `project.yml` пакет Nuke (`https://github.com/kean/Nuke`, `exactVersion: 12.8.0`, product `Nuke`):
-   `UI/Common/ArtworkView.swift` уже его импортирует. Nuke 13+ требует iOS 15 — не брать.
-3. После зелёной сборки: коммит «Этап 1», затем доделать этап 2.
+## С чего продолжить
+
+Этап 3 (плеер): `AVQueuePlayer`, очередь, фон, экран блокировки, полный плеер, повтор/перемешивание, сохранение очереди,
+таймер сна, история. Плееру нужен звук, а источники — этап 4: SoundCloud стоит подключить сразу вместе с плеером,
+иначе этап 3 нечем проверить. Сейчас тап по треку только показывает его в мини-плеере (`PlayerController.play`).
 
 ## Этап 0
 
@@ -30,31 +31,48 @@
 | UI-001 | частично | 4 вкладки; «узкая панель» позже |
 | UI-051 | заглушка | мини-плеер без звука |
 
-Проверить на телефоне: `.ipa` ставится и запускается; 4 вкладки переключаются; мини-плеер виден, ▶ меняется на ⏸.
-
-## Этап 1 (написано, не собрано)
+## Этап 1
 
 | ID | Статус | Где |
 |---|---|---|
-| SYS-200 | написано | `Storage/Backup/BackupManager.swift` (`create`) |
-| SYS-201 | написано | `BackupManager.restore`, экран `UI/Settings/BackupScreen.swift` (Главная → шестерёнка) |
-| SET-9xx | написано | `Storage/Prefs/*`: 314 ключей из `PreferenceKeys.kt` (`scripts/gen_prefkeys.py`), секреты в Keychain |
-| схема v40 | написано | `Resources/Schema/song_v40.sql`, `Storage/DB/AppDatabase.swift` (GRDB 7.12.0) |
+| SYS-200 | готово | `Storage/Backup/BackupManager.swift` (`create`) |
+| SYS-201 | частично | `BackupManager.restore`, `UI/Settings/BackupScreen.swift`; нет предпросмотра аккаунта YouTube и галочки «сбросить авторизацию» |
+| SET-9xx | готово | `Storage/Prefs/*`: 314 ключей (`scripts/gen_prefkeys.py`), секреты в Keychain |
+| схема v40 | готово | `Resources/Schema/song_v40.sql`, `Storage/DB/AppDatabase.swift` (GRDB 7.12.0) |
 
-Проверено на VM (`test.ps1`, 29 проверок прошли): чтение zip с data descriptor, protobuf DataStore, XML SharedPreferences,
-запись zip, читаемая потоково (как Java `ZipInputStream`). GRDB-часть и экран не проверены.
+Проверено на VM: zip с data descriptor, protobuf DataStore, XML SharedPreferences, запись zip (читается потоково, как на Android).
+Записей таблиц (GRDB-структур) ещё нет: появятся по мере надобности.
 
-Локализация: `scripts/gen_strings.py` → `Localizable.strings` (2298 ключей из Android), свои строки — `IOS.strings`.
+Проверить на телефоне: Главная → шестерёнка → «Резервное копирование» → восстановить `.backup` с Android → в блоке «В копии»
+числа треков/плейлистов/истории и аккаунты; после восстановления с аккаунтом Spotify вкладка «Библиотека» сразу показывает
+медиатеку без входа; «Создать резервную копию» открывает «Поделиться».
 
-Проверить на телефоне после сборки: Главная → шестерёнка → «Резервное копирование» → восстановить `.backup` с Android →
-в сводке видны числа треков/плейлистов и аккаунты; «Создать резервную копию» открывает «Поделиться».
+## Этап 2
 
-## Этап 2 (начат)
+| ID | Статус | Где |
+|---|---|---|
+| INT-002 | готово | `UI/Spotify/SpotifyLoginScreen.swift`, `Spotify/SpotifyLogin.swift`, `SpotifyAuth.swift` |
+| INT-003, INT-004 | готово | `Spotify/SpotifyTokenManager.swift` |
+| INT-005 | частично | `Spotify/SpotifyAPI.swift`: профиль, медиатека, плейлист, лайки, альбом, артист; нет поиска, главной, мутаций |
+| INT-006 | готово | `Spotify/SpotifyHashes.swift` |
+| INT-007 | готово | `UI/Common/ArtworkView.swift` (зеркало Akamai, затем исходный адрес) |
+| INT-001, INT-008, INT-009 | нет | выбор основного источника, синхронизация лайков, предзагрузка |
+| LIB-010 | частично | `UI/Spotify/SpotifyLibraryScreen.swift`; без кэша на диске и без сетки |
+| LIB-011 | частично | «Любимые треки» первыми; пометки «нет в Spotify» нет |
+| UI-039…043 | частично | `UI/Spotify/SpotifyDetailScreens.swift`; без меню, сортировки, кнопок «Играть/Перемешать» |
 
-Написано, не собиралось: `Spotify/SpotifyModels.swift`, `SpotifyAuth.swift` (TOTP, токен по `sp_dc`), `SpotifyHashes.swift`,
-`SpotifyTokenManager.swift`, `SpotifyAPI.swift` (GQL + REST: профиль, медиатека, плейлист, лайки, альбом, артист),
-`Support/HTTP.swift`, `Support/JSON.swift`, `UI/Common/ArtworkView.swift`, `UI/Common/Loader.swift`.
+Проверить на телефоне:
 
-Осталось: подключить в `AppEnvironment` (tokens, hashes, api; `hashes.sync()` при запуске), экран входа `WKWebView`
-(cookie `sp_dc`/`sp_key` с `open.spotify.com`, мобильный Safari UA, после входа ключи как в `SpotifyLoginScreen.kt:786-815`),
-экран библиотеки с фильтрами, экраны плейлиста, лайков, альбома, артиста, папки; вход/выход в настройках.
+1. Библиотека → «Войти через Spotify» → вход → окно закрывается, появляется медиатека.
+2. «Любимые треки» стоят первыми; фильтры Все/Плейлисты/Альбомы/Исполнители работают.
+3. Открываются плейлист (треки подгружаются), альбом, артист (популярные треки, альбомы, похожие), папка.
+4. Обложки грузятся.
+5. Настройки → Аккаунты: видно имя, «Выйти» возвращает экран входа.
+6. Тап по треку показывает его в мини-плеере (звука пока нет).
+
+## Структура
+
+- `project.yml` — проект XcodeGen. Пакеты: GRDB 7.12.0, Nuke 12.8.0 (Nuke 13+ требует iOS 15).
+- `scripts/` — `build.ps1` → `remote-build.sh`; `test.ps1` → `host-test.sh`; генераторы `gen_prefkeys.py`, `gen_strings.py`.
+- `Drxwnify/App`, `UI`, `Playback`, `Storage`, `Spotify`, `Support`, `Resources`; `DrxwnifyTests/Host` — проверки под macOS.
+- Строки: `Localizable.strings` генерируется из Android, свои — в `IOS.strings`.

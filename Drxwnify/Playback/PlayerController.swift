@@ -18,5 +18,11 @@ final class PlayerController: ObservableObject {
         isPlaying.toggle()
     }
 
+    /// Этап 2: только показывает трек в мини-плеере, звук появится на этапе 3.
+    func play(_ track: SpotifyTrack) {
+        nowPlaying = NowPlaying(title: track.name, artist: track.artistNames)
+        isPlaying = true
+    }
+
     func skipNext() {}
 }
