@@ -13,6 +13,11 @@ final class AppEnvironment: ObservableObject {
     let audio: AudioFallbackEngine
     let vk: VkProvider
     let likes: LikeManager
+    let library: LibraryStore
+    let downloads: DownloadManager
+    let lyrics: LyricsStore
+    /// Треки для листа «Добавить в плейлист».
+    @Published var addToPlaylist: TrackBatch?
     /// Экран, который надо открыть поверх всего (ссылка, «перейти к альбому» из плеера).
     @Published var linkTarget: AppLinks.Target?
 
@@ -28,6 +33,19 @@ final class AppEnvironment: ObservableObject {
         spotifyHashes = SpotifyHashes(settings: prefs.settings)
         spotify = SpotifyAPI(tokens: spotifyTokens, hashes: spotifyHashes)
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
+        library = LibraryStore(database: database)
+        lyrics = LyricsStore(database: database)
+        downloads = DownloadManager(engine: audio, database: database)
+        let dl = downloads
+        player.localAudio = { track in
+            guard let url = dl.fileURL(track.id), let item = dl.item(track.id) else { return nil }
+            let provider = AudioProviderId(rawValue: item.provider) ?? .SOUNDCLOUD
+            return ResolvedAudio(
+                match: ProviderMatch(provider: provider, trackId: "local", title: track.title, artist: track.artistNames,
+                                     durationMs: track.durationMs, confidence: 1, thumbnailUrl: nil, qualityKbps: item.bitrate / 1000),
+                stream: AudioStream(url: url, mimeType: "", codecs: item.codecs, bitrate: item.bitrate, expiresAt: .distantFuture),
+                isLocal: true)
+        }
         // Свежие GQL-хеши при каждом запуске (INT-006).
         let hashes = spotifyHashes
         Task.detached { await hashes.sync() }

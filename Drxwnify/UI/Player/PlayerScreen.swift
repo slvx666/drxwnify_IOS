@@ -7,12 +7,14 @@ struct PlayerScreen: View {
     @EnvironmentObject private var player: PlayerController
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var likes: LikeManager
+    @EnvironmentObject private var downloads: DownloadManager
     @Environment(\.presentationMode) private var presentation
 
     @State private var scrub: Double?
     @State private var showQueue = false
     @State private var showSleep = false
     @State private var showSources = false
+    @State private var showLyrics = false
     @State private var shareItems: [Any]?
 
     var body: some View {
@@ -20,7 +22,11 @@ struct PlayerScreen: View {
             VStack(spacing: 0) {
                 header
                 Spacer(minLength: 8)
-                artwork(side: min(geo.size.width - 48, geo.size.height * 0.46))
+                if showLyrics {
+                    LyricsView().frame(height: max(120, min(geo.size.width - 48, geo.size.height * 0.46)))
+                } else {
+                    artwork(side: min(geo.size.width - 48, geo.size.height * 0.46))
+                }
                 Spacer(minLength: 12)
                 titleRow
                 slider.padding(.top, 14)
@@ -113,10 +119,29 @@ struct PlayerScreen: View {
                     .foregroundColor(isLiked ? .red : .primary)
             }
             roundButton("square.and.arrow.up", action: share)
+            downloadButton
             Menu {
                 moreMenu
             } label: {
                 roundLabel("ellipsis")
+            }
+        }
+    }
+
+    @ViewBuilder private var downloadButton: some View {
+        if let t = player.current {
+            switch downloads.states[t.id] {
+            case .done:
+                Button(action: { downloads.remove([t.id]) }) { roundLabel("arrow.down.circle.fill") }
+            case .queued, .resolving:
+                Button(action: { downloads.cancel(t.id) }) { roundLabel("xmark") }
+            case .downloading(let p):
+                Button(action: { downloads.cancel(t.id) }) {
+                    Text("\(Int(p * 100))%").font(.caption2.monospacedDigit())
+                        .frame(width: 42, height: 42).background(Color.secondary.opacity(0.2)).clipShape(Circle()).foregroundColor(.primary)
+                }
+            default:
+                Button(action: { downloads.download([t]) }) { roundLabel("arrow.down.to.line") }
             }
         }
     }
@@ -159,6 +184,12 @@ struct PlayerScreen: View {
                 Button(action: { open(AppLinks.Target(kind: .artist, id: a.id ?? "", title: a.name, by: nil)) }) {
                     Label(t.artists.count > 1 ? a.name : L("view_artist"), systemImage: "person")
                 }
+            }
+            Button(action: {
+                presentation.wrappedValue.dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { env.addToPlaylist = TrackBatch(tracks: [t]) }
+            }) {
+                Label(L("add_to_playlist"), systemImage: "text.badge.plus")
             }
             Button(action: toggleLike) {
                 Label(L(isLiked ? "action_remove_like" : "action_like"), systemImage: isLiked ? "heart.slash" : "heart")
@@ -245,6 +276,9 @@ struct PlayerScreen: View {
         Group {
             if let error = player.errorText {
                 Text(error).foregroundColor(.red)
+            } else if player.servingLocal, let s = player.servingStream {
+                Text("\(L("ios_downloaded")) · \(s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased()) · \(s.bitrate / 1000) kbps")
+                    .foregroundColor(.secondary)
             } else if let m = player.serving, let s = player.servingStream {
                 Text("\(m.provider.displayName) · \(s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased()) · \(s.bitrate / 1000) kbps")
                     .foregroundColor(.secondary)
@@ -272,8 +306,7 @@ struct PlayerScreen: View {
             Spacer()
             barButton("shuffle", active: player.shuffle) { player.toggleShuffle() }
             Spacer()
-            barButton("quote.bubble", active: false) {}
-                .disabled(true)
+            barButton(showLyrics ? "quote.bubble.fill" : "quote.bubble", active: showLyrics) { showLyrics.toggle() }
             Spacer()
             barButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) { player.cycleRepeat() }
             Spacer()

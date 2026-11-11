@@ -23,6 +23,7 @@ final class PlayerController: NSObject, ObservableObject {
     /// Откуда сейчас идёт звук (строка качества в плеере).
     @Published private(set) var serving: ProviderMatch?
     @Published private(set) var servingStream: AudioStream?
+    @Published private(set) var servingLocal = false
     @Published private(set) var sleepTimerEnd: Date?
     @Published private(set) var sleepAtEndOfTrack = false
     @Published var queueLocked = false
@@ -296,6 +297,14 @@ final class PlayerController: NSObject, ObservableObject {
 
     var audioEngine: AudioFallbackEngine { engine }
 
+    /// Скачанный файл трека, если он есть: тогда звук в сети не ищется (офлайн).
+    var localAudio: ((Track) -> ResolvedAudio?)?
+
+    private func resolve(_ track: Track) async throws -> ResolvedAudio {
+        if let local = await MainActor.run(body: { self.localAudio?(track) }) { return local }
+        return try await engine.stream(for: track.audioQuery)
+    }
+
     // MARK: - Загрузка трека
 
     private func load(_ index: Int, autoplay: Bool, startAt: Double = 0, isRetry: Bool = false) {
@@ -342,11 +351,10 @@ final class PlayerController: NSObject, ObservableObject {
         isLoading = true
         updateNowPlaying()
         beginBackgroundTask()
-        let query = track.audioQuery
         loadTask = Task { [weak self] in
             guard let self = self else { return }
             do {
-                let audio = try await self.engine.stream(for: query)
+                let audio = try await self.resolve(track)
                 if Task.isCancelled { return }
                 await MainActor.run {
                     guard self.currentIndex == index, self.queue.indices.contains(index), self.queue[index].id == track.id else { return }
@@ -386,6 +394,7 @@ final class PlayerController: NSObject, ObservableObject {
         currentAudio = audio
         serving = audio.match
         servingStream = audio.stream
+        servingLocal = audio.isLocal
         isLoading = item.status != .readyToPlay
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             DispatchQueue.main.async { self?.itemStatusChanged(item) }
@@ -451,13 +460,12 @@ final class PlayerController: NSObject, ObservableObject {
         preloadTask?.cancel()
         guard preloaded == nil, repeatMode != .one, let n = nextIndex(auto: true), n != currentIndex else { return }
         let track = queue[n]
-        let query = track.audioQuery
         preloadTask = Task { [weak self] in
             guard let self = self else { return }
             // Не мешаем старту текущего трека.
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             if Task.isCancelled { return }
-            guard let audio = try? await self.engine.stream(for: query), !Task.isCancelled else { return }
+            guard let audio = try? await self.resolve(track), !Task.isCancelled else { return }
             await MainActor.run {
                 guard self.preloaded == nil, self.nextIndex(auto: true) == n, self.queue.indices.contains(n),
                       self.queue[n].id == track.id, let cur = self.currentItem else { return }

@@ -5,7 +5,7 @@ struct LibraryScreen: View {
     @EnvironmentObject private var env: AppEnvironment
 
     var body: some View {
-        SpotifyLibraryContent(settings: env.prefs.settings, session: env.spotifyTokens.state)
+        SpotifyLibraryContent(settings: env.prefs.settings, session: env.spotifyTokens.state, library: env.library)
             .navigationTitle(L("filter_library"))
     }
 }
@@ -16,12 +16,13 @@ private struct SpotifyLibraryContent: View {
     @ObservedObject var session: SpotifyTokenManager.State
 
     private enum Filter: String, CaseIterable, Identifiable {
-        case all, playlists, albums, artists
+        case all, songs, playlists, albums, artists
         var id: String { rawValue }
 
         var title: String {
             switch self {
             case .all: return L("filter_all")
+            case .songs: return L("filter_songs")
             case .playlists: return L("filter_playlists")
             case .albums: return L("filter_albums")
             case .artists: return L("filter_artists")
@@ -33,42 +34,113 @@ private struct SpotifyLibraryContent: View {
     @State private var filter = Filter.all
     @State private var showLogin = false
     @State private var loadedFor = ""
+    @ObservedObject var library: LibraryStore
+    @State private var localPlaylists: [LocalPlaylist] = []
+    @State private var localArtists: [LocalArtist] = []
+    @State private var summary = LibraryStore.Summary()
+    @State private var creating = false
+    @State private var newName = ""
 
     private var userId: String { settings.get(PK.spotifySpDc).map { _ in settings.get(PK.spotifyUserId) ?? "linked" } ?? "" }
     private var isLinked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty }
 
     var body: some View {
-        Group {
-            if isLinked {
-                list
-            } else {
-                loginPrompt
-            }
-        }
+        list
         .sheet(isPresented: $showLogin) {
             SpotifyLoginScreen().environmentObject(env)
         }
-        .onAppear(perform: reloadIfNeeded)
+        .onAppear {
+            reloadIfNeeded()
+            reloadLocal()
+        }
         .onChange(of: userId) { _ in reloadIfNeeded() }
+        .onChange(of: library.revision) { _ in reloadLocal() }
     }
 
-    private var loginPrompt: some View {
-        VStack(spacing: 14) {
-            Image(systemName: "music.note.house").font(.system(size: 44)).foregroundColor(.secondary)
-            Text(L(session.needsReLogin ? "spotify_login_error_expired" : "spotify_login_description"))
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            Button(L(session.needsReLogin ? "spotify_relogin" : "spotify_login")) { showLogin = true }
-                .font(.headline)
-                .padding(.horizontal, 22)
-                .padding(.vertical, 11)
-                .background(Capsule().fill(Color.green))
-                .foregroundColor(.black)
+    /// Без входа в Spotify библиотека показывает своё, а вход предлагается строкой сверху.
+    private var loginRow: some View {
+        Button(action: { showLogin = true }) {
+            HStack(spacing: 12) {
+                Image(systemName: "music.note.house").font(.title2).foregroundColor(.green).frame(width: 48, height: 48)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L(session.needsReLogin ? "spotify_relogin" : "spotify_login")).foregroundColor(.primary)
+                    Text(L(session.needsReLogin ? "spotify_login_error_expired" : "spotify_login_description"))
+                        .font(.caption).foregroundColor(.secondary).lineLimit(2)
+                }
+            }
         }
-        .padding(28)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .miniPlayerInset()
+    }
+
+    /// Своё: автоплейлисты (LIB-019) и свои плейлисты (LIB-016).
+    @ViewBuilder private var localSection: some View {
+        if creating {
+            HStack {
+                TextField(L("playlist_name"), text: $newName, onCommit: createPlaylist)
+                Button(L("create_playlist"), action: createPlaylist).buttonStyle(BorderlessButtonStyle())
+                Button(action: cancelCreate) { Image(systemName: "xmark") }.buttonStyle(BorderlessButtonStyle())
+            }
+        }
+        if !isLinked || filter == .songs {
+            autoRow(L("liked"), "heart.fill", .red, summary.liked > 0 ? LPlural("n_song", summary.liked) : nil, LocalTrackListScreen(kind: .liked))
+        }
+        if filter == .all || filter == .songs {
+            autoRow(L("songs"), "music.note", .blue, summary.songs > 0 ? LPlural("n_song", summary.songs) : nil, LocalTrackListScreen(kind: .songs))
+            autoRow(L("downloaded_songs"), "arrow.down.circle.fill", .green, nil, LocalTrackListScreen(kind: .downloaded))
+            autoRow(L("my_top"), "chart.bar.fill", .orange, nil, LocalTrackListScreen(kind: .top))
+            autoRow(L("history"), "clock.arrow.circlepath", .purple, nil, HistoryScreen())
+        }
+        if filter == .all || filter == .playlists {
+            ForEach(localPlaylists) { p in
+                NavigationLink(destination: LocalPlaylistScreen(playlist: p)) {
+                    HStack(spacing: 12) {
+                        PlaylistCover(playlist: p, size: 48)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(p.name).lineLimit(1)
+                            Text(L("ios_playlist") + " · " + LPlural("n_song", p.songCount)).font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func autoRow<D: View>(_ title: String, _ symbol: String, _ color: Color, _ detail: String?, _ destination: D) -> some View {
+        NavigationLink(destination: destination) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.title3).foregroundColor(.white)
+                    .frame(width: 48, height: 48)
+                    .background(color.opacity(0.85))
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).lineLimit(1)
+                    if let d = detail { Text(d).font(.caption).foregroundColor(.secondary) }
+                }
+            }
+        }
+    }
+
+    private func cancelCreate() {
+        creating = false
+        newName = ""
+    }
+
+    private func createPlaylist() {
+        let name = newName.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        library.createPlaylist(name: name)
+        cancelCreate()
+    }
+
+    private func reloadLocal() {
+        let lib = library
+        DispatchQueue.global(qos: .userInitiated).async {
+            let p = lib.playlists(), s = lib.summary(), a = lib.artists()
+            DispatchQueue.main.async {
+                localPlaylists = p
+                summary = s
+                localArtists = a
+            }
+        }
     }
 
     private var entries: [SpotifyLibraryEntry] {
@@ -76,6 +148,7 @@ private struct SpotifyLibraryContent: View {
         let filtered: [SpotifyLibraryEntry]
         switch filter {
         case .all: filtered = all
+        case .songs: filtered = []
         case .playlists: filtered = all.filter { $0.kind == .playlist || $0.kind == .folder || $0.kind == .likedSongs }
         case .albums: filtered = all.filter { $0.kind == .album }
         case .artists: filtered = all.filter { $0.kind == .artist }
@@ -92,6 +165,25 @@ private struct SpotifyLibraryContent: View {
             .pickerStyle(SegmentedPickerStyle())
             .listRowBackground(Color.clear)
 
+            if !isLinked {
+                loginRow
+            }
+            if filter == .all || filter == .songs || filter == .playlists {
+                localSection
+            }
+            if (filter == .artists || filter == .all) && !isLinked {
+                ForEach(localArtists) { a in
+                    NavigationLink(destination: LocalArtistScreen(artist: a)) {
+                        HStack(spacing: 12) {
+                            ArtworkView(url: a.thumbnailUrl, size: 48, circle: true, placeholderSymbol: "person.fill")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(a.name).lineLimit(1)
+                                Text(LPlural("n_song", a.songCount)).font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
             ForEach(entries) { entry in
                 NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
                     SpotifyLibraryEntryRow(entry: entry)
@@ -106,8 +198,9 @@ private struct SpotifyLibraryContent: View {
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(PlainListStyle())
-        .navigationBarItems(trailing: Button(action: { reload(force: true) }) {
-            Image(systemName: "arrow.clockwise")
+        .navigationBarItems(trailing: HStack(spacing: 16) {
+            Button(action: { creating = true }) { Image(systemName: "plus") }
+            Button(action: { reload(force: true) }) { Image(systemName: "arrow.clockwise") }
         })
     }
 

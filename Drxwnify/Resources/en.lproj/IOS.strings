@@ -43,3 +43,8 @@
 "ios_vk_save_token" = "Save token";
 "ios_vk_bad_token" = "This doesn't look like a VK token or a link with access_token";
 "ios_vk_logout" = "Sign out of VK";
+"ios_add_anyway" = "Add anyway";
+"ios_skip_duplicates" = "Skip duplicates";
+"ios_done" = "Done";
+"ios_history_empty" = "No history yet";
+"ios_downloaded" = "Downloaded";

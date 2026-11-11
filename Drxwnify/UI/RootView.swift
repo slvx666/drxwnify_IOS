@@ -28,13 +28,20 @@ struct RootView: View {
                 .environmentObject(env)
                 .environmentObject(player)
                 .environmentObject(env.likes)
+                .environmentObject(env.downloads)
                 .preferredColorScheme(.dark)
+            })
+            .background(EmptyView().sheet(item: $env.addToPlaylist) { batch in
+                AddToPlaylistSheet(batch: batch)
+                    .environmentObject(env)
+                    .preferredColorScheme(.dark)
             })
             .sheet(isPresented: $showPlayer) {
                 PlayerScreen()
                     .environmentObject(env)
                     .environmentObject(player)
                     .environmentObject(env.likes)
+                    .environmentObject(env.downloads)
                     .preferredColorScheme(.dark)
             }
     }

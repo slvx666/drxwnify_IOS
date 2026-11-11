@@ -55,6 +55,7 @@ struct SpotifyTrackRow: View {
                     }
                 }
                 Spacer(minLength: 8)
+                DownloadBadge(trackId: FallbackIds.of(track.id))
                 if likes.liked.contains(FallbackIds.of(track.id)) {
                     Image(systemName: "heart.fill").font(.caption2).foregroundColor(.red)
                 }
@@ -67,33 +68,7 @@ struct SpotifyTrackRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
-        .contextMenu {
-            Button(action: { player.playNext([Track(track, album: album)]) }) {
-                Label(L("play_next"), systemImage: "text.insert")
-            }
-            Button(action: { player.addToQueue([Track(track, album: album)]) }) {
-                Label(L("add_to_queue"), systemImage: "text.append")
-            }
-            Button(action: { likes.toggle(Track(track, album: album)) }) {
-                let on = likes.isLiked(Track(track, album: album))
-                Label(L(on ? "action_remove_like" : "action_like"), systemImage: on ? "heart.slash" : "heart")
-            }
-            if let al = track.album ?? album, !al.id.isEmpty {
-                Button(action: { env.linkTarget = AppLinks.Target(kind: .album, id: al.id, title: al.name, by: nil) }) {
-                    Label(L("view_album"), systemImage: "square.stack")
-                }
-            }
-            if let a = track.artists.first, let id = a.id, !id.isEmpty {
-                Button(action: { env.linkTarget = AppLinks.Target(kind: .artist, id: id, title: a.name, by: nil) }) {
-                    Label(L("view_artist"), systemImage: "person")
-                }
-            }
-            Button(action: {
-                UIPasteboard.general.string = AppLinks.link(.track, id: track.id, title: track.name, by: track.artistNames)
-            }) {
-                Label(L("copy_link"), systemImage: "link")
-            }
-        }
+        .contextMenu { TrackMenuItems(track: Track(track, album: album)) }
     }
 }
 
@@ -175,6 +150,7 @@ struct PlayShuffleRow: View {
             button(L("shuffle"), "shuffle", filled: false) {
                 player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: true)
             }
+            DownloadAllButton(tracks: tracks.map { Track($0, album: album) })
         }
         .disabled(tracks.isEmpty)
         .listRowBackground(Color.clear)

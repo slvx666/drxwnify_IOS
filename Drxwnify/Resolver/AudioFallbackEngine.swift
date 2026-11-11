@@ -4,6 +4,8 @@ import GRDB
 struct ResolvedAudio {
     var match: ProviderMatch
     var stream: AudioStream
+    /// Играет скачанный файл.
+    var isLocal = false
 }
 
 enum AudioResolveError: Error, LocalizedError {

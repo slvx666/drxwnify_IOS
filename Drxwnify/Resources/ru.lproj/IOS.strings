@@ -43,3 +43,8 @@
 "ios_vk_save_token" = "Сохранить токен";
 "ios_vk_bad_token" = "Не похоже на токен VK или адрес с access_token";
 "ios_vk_logout" = "Выйти из VK";
+"ios_add_anyway" = "Добавить всё равно";
+"ios_skip_duplicates" = "Пропустить дубли";
+"ios_done" = "Готово";
+"ios_history_empty" = "История пуста";
+"ios_downloaded" = "Скачано";
