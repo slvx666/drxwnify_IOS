@@ -131,3 +131,7 @@
 "ios_filter_local" = "Локальные";
 "ios_retry_all" = "Повторить все";
 "ios_clear" = "Очистить";
+"ios_yandex_logout" = "Выйти из Яндекса";
+"ios_primary_source" = "Основной источник";
+"ios_primary_source_hint" = "Откуда медиатека и поиск, когда подключены оба аккаунта.";
+"ios_stickers" = "Стикеры";

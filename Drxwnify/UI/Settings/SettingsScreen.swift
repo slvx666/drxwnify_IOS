@@ -122,6 +122,7 @@ struct ContentSettingsScreen: View {
     @EnvironmentObject private var env: AppEnvironment
     @ObservedObject var settings: TypedStore
     @State private var showSpotifyLogin = false
+    @State private var showYandexLogin = false
     @State private var confirmLogout = false
 
     private var spotifyLinked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty }
@@ -143,6 +144,24 @@ struct ContentSettingsScreen: View {
                         Label(L("spotify_login"), systemImage: "music.note")
                     }
                 }
+                if (settings.get(PK.yandexAccessToken) ?? "").isEmpty {
+                    Button(action: { showYandexLogin = true }) {
+                        Label(L("yandex_login"), systemImage: "y.circle")
+                    }
+                } else {
+                    HStack {
+                        Label(L("yandex_music"), systemImage: "y.circle.fill")
+                        Spacer()
+                        Text(settings.get(PK.yandexUsername) ?? "").foregroundColor(.secondary).lineLimit(1)
+                    }
+                    Button(L("ios_yandex_logout")) {
+                        settings.set(PK.yandexAccessToken, nil)
+                        settings.set(PK.yandexUid, nil)
+                        settings.set(PK.yandexUsername, nil)
+                        env.spotify.yandex?.logout()
+                    }
+                    .foregroundColor(.red)
+                }
                 if (settings.get(PK.vkAccessToken) ?? "").isEmpty {
                     NavigationLink(destination: VkLoginScreen()) {
                         Label(L("vk_login"), systemImage: "person.crop.circle.badge.plus")
@@ -160,9 +179,22 @@ struct ContentSettingsScreen: View {
                     .foregroundColor(.red)
                 }
             }
+            if spotifyLinked && !(settings.get(PK.yandexAccessToken) ?? "").isEmpty {
+                Section(header: Text(L("ios_primary_source")), footer: Text(L("ios_primary_source_hint"))) {
+                    Picker(L("ios_primary_source"), selection: Binding(get: { settings.get(PK.primaryMetadataSource) ?? "SPOTIFY" },
+                                                                      set: { settings.set(PK.primaryMetadataSource, $0) })) {
+                        Text("Spotify").tag("SPOTIFY")
+                        Text(L("yandex_music")).tag("YANDEX")
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                }
+            }
         }
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("content"))
+        .background(EmptyView().sheet(isPresented: $showYandexLogin) {
+            YandexLoginScreen().environmentObject(env)
+        })
         .sheet(isPresented: $showSpotifyLogin) {
             SpotifyLoginScreen().environmentObject(env)
         }

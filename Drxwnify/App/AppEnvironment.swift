@@ -42,6 +42,8 @@ final class AppEnvironment: ObservableObject {
         spotifyTokens = SpotifyTokenManager(settings: prefs.settings)
         spotifyHashes = SpotifyHashes(settings: prefs.settings)
         spotify = SpotifyAPI(tokens: spotifyTokens, hashes: spotifyHashes)
+        spotify.settings = prefs.settings
+        spotify.yandex = YandexAPI(settings: prefs.settings)
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
         library = LibraryStore(database: database)
         lyrics = LyricsStore(database: database)

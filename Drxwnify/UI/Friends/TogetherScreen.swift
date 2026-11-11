@@ -266,6 +266,11 @@ private struct FriendRow: View {
         let d = friends.data[friend.pubkey]
         HStack(spacing: 12) {
             FriendAvatar(name: d?.name ?? friend.name, avatar: d?.avatar)
+                .overlay(d?.now?.playing == true
+                         ? Circle().fill(Color.green).frame(width: 12, height: 12)
+                            .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
+                         : nil,
+                         alignment: .bottomTrailing)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(d?.name ?? friend.name).lineLimit(1)

@@ -24,8 +24,10 @@ final class LikeManager: ObservableObject {
         }
     }
 
-    private var syncsWithSpotify: Bool {
-        !(settings.get(PK.spotifySpDc) ?? "").isEmpty && (settings.get(PK.spotifySyncLikes) ?? true)
+    /// Лайк трека каталога уходит в его аккаунт: `ym_` — в Яндекс Музыку, остальное — в Spotify (при `spotifySyncLikes`).
+    private func syncs(_ catalogId: String) -> Bool {
+        if YandexIds.isYandex(catalogId) { return !(settings.get(PK.yandexAccessToken) ?? "").isEmpty }
+        return !(settings.get(PK.spotifySpDc) ?? "").isEmpty && (settings.get(PK.spotifySyncLikes) ?? true)
     }
 
     func reload() {
@@ -50,7 +52,7 @@ final class LikeManager: ObservableObject {
                               arguments: [value ? 1 : 0, value ? SongStore.nowMs() : nil, track.id])
             }
         }
-        guard syncsWithSpotify, let id = track.catalogId else { return }
+        guard let id = track.catalogId, syncs(id) else { return }
         let api = spotify
         Task {
             do {
@@ -63,8 +65,7 @@ final class LikeManager: ObservableObject {
 
     /// Сверяет с аккаунтом Spotify треки, которые ещё не проверялись (сердечко на лайкнутых прямо в Spotify).
     func refresh(_ tracks: [Track]) {
-        guard syncsWithSpotify else { return }
-        let fresh = tracks.filter { $0.catalogId != nil && !checked.contains($0.id) }
+        let fresh = tracks.filter { t in t.catalogId.map(syncs) == true && !checked.contains(t.id) }
         guard !fresh.isEmpty else { return }
         fresh.forEach { checked.insert($0.id) }
         let api = spotify

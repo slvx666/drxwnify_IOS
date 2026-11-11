@@ -42,8 +42,12 @@ private struct SpotifyLibraryContent: View {
     @State private var creating = false
     @State private var newName = ""
 
-    private var userId: String { settings.get(PK.spotifySpDc).map { _ in settings.get(PK.spotifyUserId) ?? "linked" } ?? "" }
-    private var isLinked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty }
+    /// Чья медиатека на экране: аккаунт Spotify или Яндекса (основной источник, как `Catalog.source`).
+    private var userId: String {
+        if env.spotify.yandexIsSource { return "ym:" + (settings.get(PK.yandexUid) ?? "linked") }
+        return settings.get(PK.spotifySpDc).map { _ in settings.get(PK.spotifyUserId) ?? "linked" } ?? ""
+    }
+    private var isLinked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty || env.spotify.yandexIsSource }
 
     var body: some View {
         list
@@ -168,6 +172,12 @@ private struct SpotifyLibraryContent: View {
 
             if !isLinked {
                 loginRow
+                NavigationLink(destination: ContentSettingsScreen(settings: settings)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "y.circle.fill").font(.title2).foregroundColor(.yellow).frame(width: 48, height: 48)
+                        Text(L("yandex_login")).foregroundColor(.primary)
+                    }
+                }
             }
             if filter == .all || filter == .songs || filter == .playlists {
                 localSection

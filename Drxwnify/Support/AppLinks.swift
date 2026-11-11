@@ -67,6 +67,17 @@ enum AppLinks {
             let rest = Array(segments.drop { $0.hasPrefix("intl-") })
             kindName = rest.first
             id = rest.count > 1 ? rest[1] : nil
+        } else if let h = host, h.hasPrefix("music.yandex.") {
+            // music.yandex.ru/album/1/track/2, /album/1, /artist/3, /users/<login>/playlists/<kind>
+            if let t = segments.firstIndex(of: "track"), t + 1 < segments.count {
+                return Target(kind: .track, id: YandexIds.make(segments[t + 1]), title: nil, by: nil)
+            }
+            if segments.count >= 2, segments[0] == "album" { return Target(kind: .album, id: YandexIds.make(segments[1]), title: nil, by: nil) }
+            if segments.count >= 2, segments[0] == "artist" { return Target(kind: .artist, id: YandexIds.make(segments[1]), title: nil, by: nil) }
+            if segments.count >= 4, segments[0] == "users", segments[2] == "playlists" {
+                return Target(kind: .playlist, id: YandexIds.playlist(owner: segments[1], kind: segments[3]), title: nil, by: nil)
+            }
+            return nil
         } else {
             return nil
         }
