@@ -165,3 +165,5 @@
 "ios_recent" = "Recent";
 "ios_chat_music" = "Music to chat";
 "ios_forward" = "Forward";
+"ios_lyrics_earlier" = "0.5 s earlier";
+"ios_lyrics_later" = "0.5 s later";

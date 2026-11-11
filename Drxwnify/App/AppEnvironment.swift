@@ -53,6 +53,9 @@ final class AppEnvironment: ObservableObject {
         lastfm = LastFM(settings: prefs.settings)
         library = LibraryStore(database: database)
         lyrics = LyricsStore(database: database)
+        lyrics.settings = prefs.settings
+        // Язык из настроек (в том числе из копии с Android) — до первого экрана.
+        UserDefaults.standard.set(prefs.settings.get(PK.appLanguage) ?? AppLanguage.systemDefault, forKey: "appLanguage")
         friends = FriendsHub(prefs: prefs, database: database)
         chats = ChatHub(friends: friends, prefs: prefs)
         downloads = DownloadManager(engine: audio, database: database)
@@ -74,6 +77,15 @@ final class AppEnvironment: ObservableObject {
         // Ответы разработчика на предложку — немного после запуска, когда релеи подключатся.
         Suggestions.shared.friends = friends
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { Suggestions.shared.checkReplies() }
+    }
+
+    /// Меняется при смене языка: корень перерисовывается целиком.
+    @Published private(set) var languageVersion = 0
+
+    func setLanguage(_ code: String) {
+        prefs.settings.set(PK.appLanguage, code)
+        UserDefaults.standard.set(code, forKey: "appLanguage")
+        languageVersion += 1
     }
 
     /// Что играет — друзьям (now, с задержкой 1,5 с), прослушивания — в историю друзей; «слушать вместе» ведёт плеер за другом.

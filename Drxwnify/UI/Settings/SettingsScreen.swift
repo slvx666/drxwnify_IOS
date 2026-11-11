@@ -71,8 +71,24 @@ struct PrefToggle: View {
 // MARK: - Внешний вид
 
 struct AppearanceSettingsScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
+
     var body: some View {
         List {
+            Section(header: Text(L("app_language"))) {
+                ForEach([AppLanguage.systemDefault, "ru", "en"], id: \.self) { code in
+                    Button(action: { env.setLanguage(code) }) {
+                        HStack {
+                            Text(code == AppLanguage.systemDefault ? L("system_default") : (code == "ru" ? "Русский" : "English"))
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if (AppLanguage.code ?? AppLanguage.systemDefault) == code {
+                                Image(systemName: "checkmark").foregroundColor(.accentColor)
+                            }
+                        }
+                    }
+                }
+            }
             Section(header: Text(L("theme"))) {
                 HStack {
                     Text(L("theme"))
@@ -96,6 +112,7 @@ struct PlayerSettingsScreen: View {
         List {
             Section(header: Text(L("ios_player"))) {
                 NavigationLink(destination: MusicSourcesScreen()) { Text(L("music_sources")) }
+                NavigationLink(destination: LyricsSettingsScreen(settings: settings)) { Text(L("lyrics")) }
                 Stepper(value: Binding(get: { Int(settings.get(PK.historyDuration) ?? 30) },
                                        set: { settings.set(PK.historyDuration, Float($0)) }), in: 5...240, step: 5) {
                     HStack {
@@ -111,6 +128,9 @@ struct PlayerSettingsScreen: View {
             }
             Section(header: Text(L("queue"))) {
                 PrefToggle(title: L("persistent_queue"), subtitle: L("persistent_queue_desc"), key: PK.persistentQueue, defaultValue: true, settings: settings)
+                PrefToggle(title: L("auto_load_more"), subtitle: L("auto_load_more_desc"), key: PK.autoLoadMore, defaultValue: true, settings: settings)
+                PrefToggle(title: L("disable_load_more_when_repeat_all"), subtitle: L("disable_load_more_when_repeat_all_desc"),
+                           key: PK.disableLoadMoreWhenRepeatAll, defaultValue: false, settings: settings)
             }
         }
         .listStyle(InsetGroupedListStyle())

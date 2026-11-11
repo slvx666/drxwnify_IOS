@@ -1,11 +1,20 @@
 import Foundation
 import GRDB
 
+struct LyricWord: Hashable {
+    var time: Double
+    var text: String
+}
+
 struct LyricLine: Hashable, Identifiable {
     var id: Int
     /// Секунды от начала; nil — текст без разметки по времени.
     var time: Double?
     var text: String
+    /// Пословная разметка (`<mm:ss.xx>` перед словом), если есть (LYR-002).
+    var words: [LyricWord] = []
+    /// Фоновый голос (`{bg}`): мельче и тусклее.
+    var background = false
 }
 
 struct Lyrics {
@@ -28,6 +37,7 @@ struct Lyrics {
         guard let re = try? NSRegularExpression(pattern: "\\[(\\d{1,3}):(\\d{1,2})(?:[.:](\\d{1,3}))?\\]") else { return [] }
         var timed: [(Double, String)] = []
         var plain: [String] = []
+        let wordRe = try? NSRegularExpression(pattern: "<(\\d{1,3}):(\\d{1,2})(?:[.:](\\d{1,3}))?>")
         for line in raw.components(separatedBy: .newlines) {
             let ns = line as NSString
             let matches = re.matches(in: line, range: NSRange(location: 0, length: ns.length))
@@ -50,9 +60,50 @@ struct Lyrics {
             }
         }
         if !timed.isEmpty {
-            return timed.sorted { $0.0 < $1.0 }.enumerated().map { LyricLine(id: $0.offset, time: $0.element.0, text: $0.element.1) }
+            return timed.sorted { $0.0 < $1.0 }.enumerated().map { i, item in
+                var (text, background) = stripMarks(item.1)
+                var words: [LyricWord] = []
+                if let re = wordRe, text.contains("<") {
+                    let ns = text as NSString
+                    let ms = re.matches(in: text, range: NSRange(location: 0, length: ns.length))
+                    for (k, m) in ms.enumerated() {
+                        let end = k + 1 < ms.count ? ms[k + 1].range.location : ns.length
+                        let chunk = ns.substring(with: NSRange(location: m.range.upperBound, length: end - m.range.upperBound))
+                        words.append(LyricWord(time: seconds(ns, m), text: chunk))
+                    }
+                    text = re.stringByReplacingMatches(in: text, range: NSRange(location: 0, length: ns.length), withTemplate: "")
+                }
+                return LyricLine(id: i, time: item.0, text: text.trimmingCharacters(in: .whitespaces), words: words, background: background)
+            }
         }
-        return plain.enumerated().map { LyricLine(id: $0.offset, time: nil, text: $0.element) }
+        return plain.enumerated().map { LyricLine(id: $0.offset, time: nil, text: stripMarks($0.element).0) }
+    }
+
+    private static func seconds(_ ns: NSString, _ m: NSTextCheckingResult) -> Double {
+        let minutes = Double(ns.substring(with: m.range(at: 1))) ?? 0
+        let secs = Double(ns.substring(with: m.range(at: 2))) ?? 0
+        var fraction = 0.0
+        if m.range(at: 3).location != NSNotFound {
+            let f = ns.substring(with: m.range(at: 3))
+            fraction = (Double(f) ?? 0) / pow(10, Double(f.count))
+        }
+        return minutes * 60 + secs + fraction
+    }
+
+    /// Убирает пометки исполнителей (`{agent:v1}`, `v1:`) и фона (`{bg}`).
+    private static func stripMarks(_ line: String) -> (String, Bool) {
+        var t = line
+        var background = false
+        while true {
+            let before = t
+            if t.hasPrefix("{bg}") { background = true; t.removeFirst(4) }
+            for p in [#"^\{agent:[^}]+\}"#, #"^v\d+:"#] {
+                if let r = t.range(of: p, options: .regularExpression) { t.removeSubrange(r) }
+            }
+            t = t.trimmingCharacters(in: .whitespaces)
+            if t == before { break }
+        }
+        return (t, background)
     }
 }
 
@@ -60,6 +111,10 @@ struct Lyrics {
 final class LyricsStore {
     private let database: AppDatabase
     private static let ua = "Drxwnify (https://drxwnify.pages.dev)"
+    /// Порядок и включение источников (ставит `AppEnvironment`).
+    var settings: TypedStore?
+    /// На все источники вместе — 30 с, каждому поровну (`LyricsHelper.MAX_LYRICS_FETCH_MS`).
+    private static let maxFetch: Double = 30
 
     init(database: AppDatabase) {
         self.database = database
@@ -83,9 +138,63 @@ final class LyricsStore {
         try? database.pool.write { try $0.execute(sql: "DELETE FROM lyrics WHERE id = ?", arguments: [id]) }
     }
 
-    /// Текст для трека: из кэша, иначе из сети. nil — не найден.
+    /// Сдвиг синхронизации трека в мс (`song.lyricsOffset`, LYR-008).
+    func offset(_ id: String) -> Int {
+        (try? database.pool.read { try Int.fetchOne($0, sql: "SELECT lyricsOffset FROM song WHERE id = ?", arguments: [id]) } ?? 0) ?? 0
+    }
+
+    func setOffset(_ track: Track, _ ms: Int) {
+        try? database.pool.write { db in
+            try SongStore.ensure(db, track)
+            try db.execute(sql: "UPDATE song SET lyricsOffset = ? WHERE id = ?", arguments: [ms, track.id])
+        }
+    }
+
+    /// Текст для трека: из кэша, иначе источники по порядку из настроек (первый ответ побеждает, как `LyricsHelper`).
     func lyrics(for track: Track, refresh: Bool = false) async -> Lyrics? {
         if !refresh, let hit = cached(track.id) { return hit }
+        guard let settings = settings else { return await legacy(track) }
+        let names = LyricsProviders.order(settings).filter { LyricsProviders.isEnabled($0, settings) }
+        let per = Self.maxFetch / Double(max(1, names.count))
+        for name in names {
+            guard let text = await Self.withTimeout(per, { await self.fetch(name, track) }), !text.isEmpty else { continue }
+            let l = Lyrics(raw: LyricsProviders.filterCredits(text), provider: name)
+            if l.lines.isEmpty { continue }
+            save(track, l.raw, provider: name)
+            return l
+        }
+        return nil
+    }
+
+    private func fetch(_ name: String, _ t: Track) async -> String? {
+        let title = LyricsProviders.cleanTitle(t.title)
+        let artist = t.artistNames
+        let sec = t.durationMs / 1000
+        switch name {
+        case "BetterLyrics": return await LyricsProviders.betterLyrics(title: t.title, artist: artist, durationSec: sec, album: t.albumName)
+        case "Paxsenix": return await LyricsProviders.paxsenix(title: title, artist: artist, durationSec: sec, album: t.albumName)
+        case "LrcLib": return await fetchLrcLib(t)?.raw
+        case "KuGou": return await KuGouLyrics.fetch(t)
+        case "LyricsPlus": return await LyricsProviders.lyricsPlus(title: title, artist: artist, durationMs: t.durationMs, album: t.albumName)
+        default: return nil
+        }
+    }
+
+    private static func withTimeout(_ seconds: Double, _ work: @escaping () async -> String?) async -> String? {
+        await withTaskGroup(of: String??.self) { group in
+            group.addTask { await work() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return .some(nil)
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? nil
+        }
+    }
+
+    /// Без настроек: LrcLib, затем KuGou.
+    private func legacy(_ track: Track) async -> Lyrics? {
         let lrc = await fetchLrcLib(track)
         // Синхронный текст LrcLib — сразу; иначе пробуем KuGou (как `LyricsProviderRegistry` на Android), обычный текст — запасной.
         if let l = lrc, l.isSynced {
