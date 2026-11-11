@@ -705,7 +705,9 @@ final class PlayerController: NSObject, ObservableObject {
             let status = p.timeControlStatus
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                let wasPlaying = self.isPlaying
                 self.isPlaying = status == .playing
+                if self.isPlaying && !wasPlaying { self.autoSleepTimerIfDue() }
                 if self.currentItem != nil { self.isLoading = status == .waitingToPlayAtSpecifiedRate }
                 if self.isPlaying { self.consecutiveFailures = 0 }
                 self.lastTick = nil
@@ -932,6 +934,40 @@ final class PlayerController: NSObject, ObservableObject {
         cancelSleepTimer()
         sleepTimerEnd = Date().addingTimeInterval(Double(minutes) * 60)
         sleepTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.sleepTick() }
+    }
+
+    private var lastAutoSleep: Date?
+
+    /// Автотаймер сна (PLAY-014, как `PlayerConnection` на Android): музыка включилась в окне времени в разрешённый день —
+    /// таймер на минуты по умолчанию. Не чаще раза в 30 минут, и не поверх уже идущего таймера.
+    private func autoSleepTimerIfDue() {
+        guard settings.get(PK.sleepTimerEnabled) ?? false, sleepTimerEnd == nil, !sleepAtEndOfTrack else { return }
+        if let last = lastAutoSleep, Date().timeIntervalSince(last) < 30 * 60 { return }
+        let cal = Calendar.current
+        let now = Date()
+        // Понедельник = 0 … воскресенье = 6, как на Android.
+        let day = (cal.component(.weekday, from: now) + 5) % 7
+        let allowed: Bool
+        switch settings.get(PK.sleepTimerRepeat) ?? "daily" {
+        case "weekdays": allowed = day <= 4
+        case "weekends": allowed = day >= 5
+        case "custom":
+            let days = (settings.get(PK.sleepTimerCustomDays) ?? "0,1,2,3,4").split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            allowed = days.contains(day)
+        default: allowed = true
+        }
+        guard allowed else { return }
+        func minutes(_ s: String) -> Int? {
+            let p = s.split(separator: ":").compactMap { Int($0) }
+            return p.count == 2 ? p[0] * 60 + p[1] : nil
+        }
+        guard let start = minutes(settings.get(PK.sleepTimerStartTime) ?? "22:00"),
+              let end = minutes(settings.get(PK.sleepTimerEndTime) ?? "06:00") else { return }
+        let cur = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
+        let inRange = end > start ? (cur >= start && cur < end) : (cur >= start || cur < end)
+        guard inRange else { return }
+        lastAutoSleep = now
+        startSleepTimer(minutes: Int(settings.get(PK.sleepTimerDefault) ?? 30))
     }
 
     func startSleepTimerEndOfTrack() {

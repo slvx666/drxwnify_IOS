@@ -183,3 +183,8 @@
 "ios_spotify_plays" = "%@ прослушиваний в Spotify";
 "ios_cover_save" = "Сохранить в «Фото»";
 "ios_cover_saved" = "Сохранено в «Фото»";
+"ios_stats_minutes" = "минут";
+"ios_stats_plays" = "прослушиваний";
+"ios_wrapped_minutes" = "В этом году ты слушал музыку %d минут";
+"ios_how_others_see" = "Как меня видят другие";
+"ios_auto_sleep" = "Автотаймер сна";

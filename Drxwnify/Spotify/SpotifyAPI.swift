@@ -862,6 +862,11 @@ final class AlbumCache {
         return Date().timeIntervalSince(at) <= maxAge ? a : nil
     }
 
+    func forget(_ id: String) {
+        lock.lock(); memory[id] = nil; lock.unlock()
+        try? FileManager.default.removeItem(at: file(id))
+    }
+
     /// Для первого кадра экрана: любой сохранённый, без сети.
     func any(_ id: String) -> SpotifyAlbum? { get(id, maxAge: .infinity) }
 

@@ -681,6 +681,52 @@ final class FriendsHub: ObservableObject {
         if onlyFor == nil { store.setLong(Int(Self.nowMs()), for: "libraryAt") }
     }
 
+    /// «Как меня видят» (Android 1.5.1): то, что получает зритель, которому открыты поля с рангом ≥ `minRank`
+    /// (1 — отмеченный друг, 2 — друг, 3 — все).
+    func preview(minRank: Int) -> FriendData {
+        var d = FriendData()
+        d.name = profile?.name
+        d.avatar = profile?.avatar
+        let p = privacy
+        func open(_ a: Audience) -> Bool { a != .NOBODY && a.rank >= minRank }
+        if open(p.nowPlaying) { d.now = lastNow }
+        try? database.pool.read { db in
+            if open(p.history) {
+                d.history = try Self.refs(db, sql: """
+                    SELECT song.id, song.title, song.duration, song.thumbnailUrl, MAX(e.timestamp) AS at FROM event e JOIN song ON song.id = e.songId
+                    WHERE e.playTime >= MIN(30000, song.duration * 500) GROUP BY song.id ORDER BY at DESC LIMIT ?
+                    """, arguments: [Self.maxHistory], withCover: true)
+            }
+            if open(p.playlists) {
+                let likes = try Self.refs(db, sql: "SELECT id, title, duration, thumbnailUrl FROM song WHERE liked = 1 ORDER BY likedDate DESC LIMIT ?",
+                                          arguments: [Self.maxLikes], withCover: true)
+                let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM song WHERE liked = 1") ?? likes.count
+                if !likes.isEmpty { d.likes = SharedLikes(total: total, source: nil, tracks: likes) }
+                d.playlists = try Row.fetchAll(db, sql: "SELECT id, name FROM playlist ORDER BY createdAt ASC, rowid ASC LIMIT ?", arguments: [Self.maxPlaylists]).map { r in
+                    let id: String = r["id"]
+                    let n = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = ?", arguments: [id]) ?? 0
+                    let refs = try Self.refs(db, sql: """
+                        SELECT song.id, song.title, song.duration, song.thumbnailUrl FROM playlist_song_map m JOIN song ON song.id = m.songId
+                        WHERE m.playlistId = ? ORDER BY m.position LIMIT ?
+                        """, arguments: [id, Self.maxPlaylistTracks], withCover: false)
+                    return SharedPlaylist(name: r["name"], total: n, tracks: refs)
+                }
+            }
+            if open(p.stats) {
+                let weekAgo = Self.nowMs() - 7 * 24 * 3600 * 1000
+                let row = try Row.fetchOne(db, sql: "SELECT COALESCE(SUM(playTime), 0) AS t, COUNT(*) AS n FROM event WHERE timestamp > ?", arguments: [weekAgo])
+                let liked = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM song WHERE liked = 1") ?? 0
+                let top = try Row.fetchAll(db, sql: """
+                    SELECT a.name AS name, COUNT(DISTINCT e.songId) AS c FROM event e JOIN song_artist_map m ON m.songId = e.songId
+                    JOIN artist a ON a.id = m.artistId WHERE e.timestamp > ? GROUP BY a.id ORDER BY SUM(e.playTime) DESC LIMIT 5
+                    """, arguments: [weekAgo]).map { ($0["name"] as String, $0["c"] as Int) }
+                let t: Int64 = row?["t"] ?? 0
+                d.stats = Stats(weekMinutes: Int(t / 60000), weekPlays: row?["n"] ?? 0, likedCount: liked, topArtists: top)
+            }
+        }
+        return d
+    }
+
     private func publishHistory(_ audience: Audience, onlyFor: String?) {
         let refs: [TrackRef] = (try? database.pool.read { db in
             // Последние разные треки; прослушивание засчитано (как `Listening.counts`): ≥ 30 с или половина трека.

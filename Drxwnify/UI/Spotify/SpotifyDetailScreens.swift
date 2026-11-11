@@ -29,6 +29,11 @@ struct SpotifyPlaylistScreen: View {
         .navigationTitle(info.value?.name ?? name)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabChrome()
+        .navigationBarItems(trailing: HStack(spacing: 16) {
+            CollectionMenuButton(tracks: tracks.items.map { Track($0.track) }, title: info.value?.name ?? name, radio: true,
+                                 refresh: { load(force: true) })
+            ShareLinkButton(text: AppLinks.shareText(.playlist, id: playlistId, title: info.value?.name ?? name, by: nil))
+        })
         .onAppear { load(force: false) }
     }
 
@@ -136,10 +141,11 @@ struct SpotifyAlbumScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabChrome()
         .navigationBarItems(trailing: HStack(spacing: 16) {
-            Button(action: {
-                if let a = loader.value { env.trackSelection = TrackBatch(tracks: a.tracks.map { Track($0, album: a.simple) }) }
-            }) { Image(systemName: "checklist") }
-            .disabled(loader.value == nil)
+            if let a = loader.value {
+                CollectionMenuButton(tracks: a.tracks.map { Track($0, album: a.simple) }, title: a.name,
+                                     artist: a.artists.first.flatMap { ar in ar.id.map { AppLinks.Target(kind: .artist, id: $0, title: ar.name, by: nil) } },
+                                     origin: .album, refresh: { AlbumCache.shared.forget(albumId); load(force: true) })
+            }
             ShareLinkButton(text: AppLinks.shareText(.album, id: albumId, title: loader.value?.name ?? name, by: loader.value?.artistNames))
         })
         // Из кэша сразу, свежее — тихо.

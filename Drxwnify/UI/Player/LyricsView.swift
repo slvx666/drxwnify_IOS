@@ -87,6 +87,29 @@ struct LyricsView: View {
     }
 
     @ViewBuilder private func lineView(_ line: LyricLine, synced: Bool) -> some View {
+        if let roman = Romanizer.romanize(line.text) {
+            if Romanizer.asMain {
+                VStack(alignment: align, spacing: 2) {
+                    Text(roman).font(lineFont(line)).foregroundColor(color(line, synced: synced))
+                    Text(line.text).font(.caption).foregroundColor(.secondary)
+                }
+            } else {
+                VStack(alignment: align, spacing: 2) {
+                    baseLine(line, synced: synced)
+                    Text(roman).font(.subheadline).foregroundColor(Color.primary.opacity(line.id == currentLine ? 0.75 : 0.3))
+                }
+            }
+        } else {
+            baseLine(line, synced: synced)
+        }
+    }
+
+    private func lineFont(_ line: LyricLine) -> Font {
+        let size = CGFloat(settings.get(PK.lyricsTextSize) ?? 24) * (UIMetrics.isShort ? 0.72 : 0.84)
+        return line.background ? .system(size: size * 0.75, weight: .semibold) : .system(size: size, weight: .bold)
+    }
+
+    @ViewBuilder private func baseLine(_ line: LyricLine, synced: Bool) -> some View {
         let size = CGFloat(settings.get(PK.lyricsTextSize) ?? 24) * (UIMetrics.isShort ? 0.72 : 0.84)
         let font: Font = line.background ? .system(size: size * 0.75, weight: .semibold) : .system(size: size, weight: .bold)
         if synced, !line.words.isEmpty, line.id == currentLine || isCurrentBackground(line) {

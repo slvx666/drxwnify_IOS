@@ -183,3 +183,8 @@
 "ios_spotify_plays" = "%@ plays on Spotify";
 "ios_cover_save" = "Save to Photos";
 "ios_cover_saved" = "Saved to Photos";
+"ios_stats_minutes" = "minutes";
+"ios_stats_plays" = "plays";
+"ios_wrapped_minutes" = "This year you listened for %d minutes";
+"ios_how_others_see" = "How others see me";
+"ios_auto_sleep" = "Automatic sleep timer";

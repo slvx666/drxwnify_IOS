@@ -23,11 +23,30 @@ struct LyricsSettingsScreen: View {
                     settings.set(PK.lyricsProviderOrder, order.joined(separator: ","))
                 }
             }
+            Section(header: Text(L("lyrics_romanization"))) {
+                RomanizeToggle(lang: "japanese", title: L("lyrics_romanize_japanese"))
+                RomanizeToggle(lang: "korean", title: L("lyrics_romanize_korean"))
+                RomanizeToggle(lang: "chinese", title: L("lyrics_romanize_chinese"))
+                RomanizeToggle(lang: "cyrillic", title: L("lyrics_romanization_cyrillic"))
+                PrefToggle(title: L("lyrics_romanize_as_main"), key: PK.lyricsRomanizeAsMain, defaultValue: false, settings: settings)
+            }
         }
         .listStyle(InsetGroupedListStyle())
         .environment(\.editMode, .constant(.active))
         .navigationTitle(L("lyrics"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { order = LyricsProviders.order(settings) }
+    }
+}
+
+/// Переключатель романизации одного письма (свои ключи iOS: формат списка Android в копии другой).
+struct RomanizeToggle: View {
+    let lang: String
+    let title: String
+    @State private var on = false
+
+    var body: some View {
+        Toggle(title, isOn: Binding(get: { on }, set: { on = $0; Romanizer.set(lang, $0) }))
+            .onAppear { on = Romanizer.isOn(lang) }
     }
 }

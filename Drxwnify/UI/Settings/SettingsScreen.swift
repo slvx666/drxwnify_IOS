@@ -187,6 +187,14 @@ struct PlayerSettingsScreen: View {
                 }
                 PrefToggle(title: L("end_of_song"), key: PK.sleepTimerStopAfterCurrentSong, defaultValue: false, settings: settings)
                 PrefToggle(title: L("fade"), key: PK.sleepTimerFadeOut, defaultValue: false, settings: settings)
+                PrefToggle(title: L("ios_auto_sleep"), subtitle: L("sleep_timer_repeat_description"), key: PK.sleepTimerEnabled, defaultValue: false, settings: settings)
+                if settings.get(PK.sleepTimerEnabled) ?? false {
+                    PrefChoice(title: L("sleep_timer_repeat"), key: PK.sleepTimerRepeat, defaultValue: "daily",
+                               options: [("daily", L("sleep_timer_daily")), ("weekdays", L("sleep_timer_weekdays")), ("weekends", L("sleep_timer_weekends"))],
+                               settings: settings)
+                    TimePrefRow(title: L("sleep_timer_start_time"), key: PK.sleepTimerStartTime, fallback: "22:00", settings: settings)
+                    TimePrefRow(title: L("sleep_timer_end_time"), key: PK.sleepTimerEndTime, fallback: "06:00", settings: settings)
+                }
             }
             Section(header: Text(L("queue"))) {
                 PrefToggle(title: L("persistent_queue"), subtitle: L("persistent_queue_desc"), key: PK.persistentQueue, defaultValue: true, settings: settings)
@@ -592,5 +600,28 @@ struct LastFMSettingsScreen: View {
                 await MainActor.run { working = false; self.error = error.localizedDescription }
             }
         }
+    }
+}
+
+
+/// Время «ЧЧ:ММ» в строковом ключе (формат Android).
+struct TimePrefRow: View {
+    let title: String
+    let key: PrefKey<String>
+    let fallback: String
+    @ObservedObject var settings: TypedStore
+
+    private var date: Binding<Date> {
+        Binding(get: {
+            let p = (settings.get(key) ?? fallback).split(separator: ":").compactMap { Int($0) }
+            return Calendar.current.date(bySettingHour: p.first ?? 22, minute: p.count > 1 ? p[1] : 0, second: 0, of: Date()) ?? Date()
+        }, set: { d in
+            let c = Calendar.current.dateComponents([.hour, .minute], from: d)
+            settings.set(key, String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0))
+        })
+    }
+
+    var body: some View {
+        DatePicker(title, selection: date, displayedComponents: .hourAndMinute)
     }
 }

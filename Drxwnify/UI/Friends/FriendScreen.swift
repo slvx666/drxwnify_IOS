@@ -3,12 +3,14 @@ import SwiftUI
 /// Страница друга: что слушает сейчас («слушать вместе»), история, плейлисты, лайки, статистика; чат.
 struct FriendScreen: View {
     let pubkey: String
+    /// «Как меня видят»: показать эти данные вместо полученных, без чата и удаления.
+    var previewData: FriendsHub.FriendData? = nil
     @EnvironmentObject private var friends: FriendsHub
     @EnvironmentObject private var player: PlayerController
     @Environment(\.presentationMode) private var presentation
     @State private var confirmRemove = false
 
-    private var data: FriendsHub.FriendData? { friends.data[pubkey] }
+    private var data: FriendsHub.FriendData? { previewData ?? friends.data[pubkey] }
     private var name: String { data?.name ?? friends.friends.first { $0.pubkey == pubkey }?.name ?? String(pubkey.prefix(8)) }
 
     var body: some View {
@@ -16,11 +18,13 @@ struct FriendScreen: View {
             VStack(spacing: 8) {
                 FriendAvatar(name: name, avatar: data?.avatar, size: UIMetrics.scaled(96))
                 Text(name).font(.title3.weight(.bold))
+                if previewData == nil {
                 NavigationLink(destination: ChatScreen(peer: pubkey)) {
                     Label(L("ios_chat"), systemImage: "bubble.left.and.bubble.right.fill")
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 18).padding(.vertical, 9)
                         .background(Capsule().fill(Color.accentColor.opacity(0.25)))
+                }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -135,6 +139,29 @@ struct RefListScreen: View {
         }
         .listStyle(PlainListStyle())
         .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+
+/// «Как меня видят другие» (Android 1.5.1): свой профиль глазами друга, отмеченного друга или любого человека.
+struct ProfilePreviewScreen: View {
+    @EnvironmentObject private var friends: FriendsHub
+    @State private var viewer = 2
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $viewer) {
+                Text(L("ios_audience_friends")).tag(2)
+                Text(L("ios_audience_verified")).tag(1)
+                Text(L("ios_audience_everyone")).tag(3)
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .padding(.horizontal, 16).padding(.vertical, 8)
+            FriendScreen(pubkey: friends.profile?.pubkey ?? "", previewData: friends.preview(minRank: viewer))
+                .id(viewer)
+        }
+        .navigationTitle(L("ios_how_others_see"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }

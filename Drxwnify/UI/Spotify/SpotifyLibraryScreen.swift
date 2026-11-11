@@ -121,6 +121,7 @@ private struct SpotifyLibraryContent: View {
             if settings.get(PK.showTopPlaylist) ?? true {
                 autoRow(L("my_top"), "chart.bar.fill", .orange, nil, LocalTrackListScreen(kind: .top))
             }
+            autoRow(L("stats"), "chart.pie.fill", .pink, nil, StatsScreen())
         }
     }
 

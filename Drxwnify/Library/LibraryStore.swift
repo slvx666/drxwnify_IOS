@@ -243,6 +243,42 @@ final class LibraryStore: ObservableObject {
         changed()
     }
 
+    struct Stats {
+        var totalMs: Int64 = 0
+        var plays = 0
+        var tracks: [(track: Track, plays: Int, ms: Int64)] = []
+        var artists: [(name: String, id: String?, image: String?, plays: Int, ms: Int64)] = []
+        var albums: [(name: String, id: String?, image: String?, artist: String, ms: Int64)] = []
+    }
+
+    /// Статистика прослушиваний с момента `sinceMs` (HOME-100…104): время, топ треков, исполнителей, альбомов.
+    func stats(sinceMs: Int64, limit: Int = 50) -> Stats {
+        read(Stats()) { db in
+            var out = Stats()
+            if let r = try Row.fetchOne(db, sql: "SELECT COUNT(*) AS n, COALESCE(SUM(playTime), 0) AS ms FROM event WHERE timestamp >= ?", arguments: [sinceMs]) {
+                out.plays = r["n"]; out.totalMs = r["ms"]
+            }
+            let rows = try Row.fetchAll(db, sql: """
+                SELECT \(Self.songColumns), COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e JOIN song ON song.id = e.songId
+                WHERE e.timestamp >= ? GROUP BY song.id ORDER BY ms DESC LIMIT ?
+                """, arguments: [sinceMs, limit])
+            let list = try tracks(db, rows)
+            out.tracks = zip(rows, list).map { ($1, $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
+            out.artists = try Row.fetchAll(db, sql: """
+                SELECT a.name, a.spotifyId, a.thumbnailUrl, COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e
+                JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0 JOIN artist a ON a.id = m.artistId
+                WHERE e.timestamp >= ? GROUP BY a.id ORDER BY ms DESC LIMIT ?
+                """, arguments: [sinceMs, limit]).map { ($0["name"] as String? ?? "", $0["spotifyId"], $0["thumbnailUrl"], $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
+            out.albums = try Row.fetchAll(db, sql: """
+                SELECT s.albumName, s.albumId, MAX(s.thumbnailUrl) AS thumb, MAX(a.name) AS artist, SUM(e.playTime) AS ms FROM event e
+                JOIN song s ON s.id = e.songId
+                LEFT JOIN song_artist_map m ON m.songId = s.id AND m.position = 0 LEFT JOIN artist a ON a.id = m.artistId
+                WHERE e.timestamp >= ? AND s.albumName IS NOT NULL AND s.albumName != '' GROUP BY s.albumName ORDER BY ms DESC LIMIT ?
+                """, arguments: [sinceMs, limit]).map { ($0["albumName"] as String? ?? "", $0["albumId"], $0["thumb"], $0["artist"] as String? ?? "", $0["ms"] as Int64? ?? 0) }
+            return out
+        }
+    }
+
     func playlistEntries(_ playlistId: String) -> [PlaylistEntry] {
         read([]) { db in
             let rows = try Row.fetchAll(db, sql: """
