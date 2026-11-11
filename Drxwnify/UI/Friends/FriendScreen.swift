@@ -14,7 +14,7 @@ struct FriendScreen: View {
     var body: some View {
         List {
             VStack(spacing: 8) {
-                FriendAvatar(name: name, avatar: data?.avatar, size: 96)
+                FriendAvatar(name: name, avatar: data?.avatar, size: UIMetrics.scaled(96))
                 Text(name).font(.title3.weight(.bold))
                 NavigationLink(destination: ChatScreen(peer: pubkey)) {
                     Label(L("ios_chat"), systemImage: "bubble.left.and.bubble.right.fill")

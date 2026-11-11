@@ -272,7 +272,7 @@ struct DownloadAllButton: View {
                 }
             }
             .font(.system(size: 20))
-            .frame(width: 56, height: 56)
+            .frame(width: UIMetrics.scaled(56), height: UIMetrics.scaled(56))
             .foregroundColor(done == tracks.count && !tracks.isEmpty ? .accentColor : .primary)
             .background(Color.secondary.opacity(0.2))
             .clipShape(Circle())
@@ -298,18 +298,18 @@ struct PlayButtonsRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: UIMetrics.isNarrow ? 14 : 22) {
             Spacer()
             Button(action: shuffle) {
                 Image(systemName: "shuffle").font(.system(size: 20, weight: .semibold))
-                    .frame(width: 56, height: 56)
+                    .frame(width: UIMetrics.scaled(56), height: UIMetrics.scaled(56))
                     .foregroundColor(.primary)
                     .background(Circle().fill(Color.secondary.opacity(0.2)))
             }
             .buttonStyle(PlainButtonStyle())
             Button(action: play) {
-                Image(systemName: "play.fill").font(.system(size: 30, weight: .semibold))
-                    .frame(width: 84, height: 84)
+                Image(systemName: "play.fill").font(.system(size: UIMetrics.scaled(30), weight: .semibold))
+                    .frame(width: UIMetrics.scaled(84), height: UIMetrics.scaled(84))
                     .foregroundColor(Color(.systemBackground))
                     .background(Circle().fill(Color.accentColor))
             }

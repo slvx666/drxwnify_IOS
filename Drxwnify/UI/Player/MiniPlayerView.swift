@@ -5,7 +5,7 @@ import UIKit
 struct MiniPlayerView: View {
     enum Style { case classic, accessory }
 
-    static let classicHeight: CGFloat = 64
+    static var classicHeight: CGFloat { UIMetrics.isNarrow ? 56 : 64 }
 
     let style: Style
     @Binding var showPlayer: Bool
@@ -23,6 +23,7 @@ struct MiniPlayerView: View {
             switch style {
             case .classic:
                 row
+                    .cappedDynamicType(.large)
                     .padding(.leading, 6).padding(.trailing, 8)
                     .frame(height: Self.classicHeight)
                     .background(BlurView(style: .systemChromeMaterial))
@@ -44,7 +45,7 @@ struct MiniPlayerView: View {
 
     /// Как на Android: круглая обложка с кольцом прогресса, по центру — пауза/играть.
     private var playDisc: some View {
-        let side: CGFloat = style == .classic ? 52 : 36
+        let side: CGFloat = style == .classic ? (UIMetrics.isNarrow ? 44 : 52) : 36
         let inner: CGFloat = side - 6
         return Button(action: player.togglePlayPause) {
             ZStack {
@@ -68,7 +69,7 @@ struct MiniPlayerView: View {
     }
 
     private var row: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: UIMetrics.isNarrow ? 6 : 10) {
             playDisc
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -122,7 +123,7 @@ struct MiniPlayerView: View {
                     ZStack {
                         circleLabel("xmark", tint: .secondary)
                         Circle().trim(from: 0, to: CGFloat(p)).stroke(Color.accentColor, lineWidth: 2)
-                            .rotationEffect(.degrees(-90)).frame(width: 40, height: 40)
+                            .rotationEffect(.degrees(-90)).frame(width: circleSide, height: circleSide)
                     }
                 }
             case .queued, .resolving:
@@ -134,12 +135,15 @@ struct MiniPlayerView: View {
     }
 }
 
+/// Сторона кружка-кнопки мини-плеера: 34 pt на узком экране.
+var circleSide: CGFloat { UIMetrics.isNarrow ? 34 : 40 }
+
 /// Кружок-кнопка мини-плеера (обводка, как на Android).
 func circleLabel(_ symbol: String, tint: Color) -> some View {
     Image(systemName: symbol)
         .font(.system(size: 15, weight: .semibold))
         .foregroundColor(tint)
-        .frame(width: 40, height: 40)
+        .frame(width: circleSide, height: circleSide)
         .overlay(Circle().stroke(Color.secondary.opacity(0.35), lineWidth: 1))
 }
 

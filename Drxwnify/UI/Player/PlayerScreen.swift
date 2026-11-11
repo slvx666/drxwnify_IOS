@@ -19,25 +19,21 @@ struct PlayerScreen: View {
     @State private var showMenu = false
 
     var body: some View {
-        GeometryReader { geo in
-            VStack(spacing: 0) {
-                header
-                Spacer(minLength: 8)
-                if showLyrics {
-                    LyricsView().frame(height: max(120, min(geo.size.width - 48, geo.size.height * 0.46)))
-                } else {
-                    artwork(side: min(geo.size.width - 48, geo.size.height * 0.46))
-                }
-                Spacer(minLength: 12)
-                titleRow
-                slider.padding(.top, 14)
-                controls.padding(.top, 14)
-                Spacer(minLength: 8)
-                bottomBar
+        // Пункт 0б: обложка (или текст) занимает только оставшееся место, поэтому нижний ряд виден на любом экране,
+        // включая 320×568 («Увеличенный» масштаб). Кнопки на коротком экране меньше.
+        VStack(spacing: 0) {
+            header
+            GeometryReader { box in
+                middle(in: box.size)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 8)
+            titleRow.padding(.top, compact ? 4 : 8)
+            slider.padding(.top, compact ? 4 : 12)
+            controls.padding(.top, compact ? 6 : 12)
+            bottomBar.padding(.top, compact ? 4 : 10)
         }
+        .padding(.horizontal, compact ? 16 : 24)
+        .padding(.bottom, compact ? 4 : 8)
+        .cappedDynamicType()
         .background(Color(.systemBackground).ignoresSafeArea())
         .sheet(isPresented: $showQueue) {
             QueueScreen().environmentObject(player)
@@ -69,6 +65,23 @@ struct PlayerScreen: View {
         }
     }
 
+    /// Короткий экран (высота меньше 700 pt: iPhone 8, SE, «Увеличенный» масштаб).
+    private var compact: Bool { UIMetrics.height < 700 }
+    private var tiny: Bool { UIMetrics.isShort }
+    private var controlHeight: CGFloat { tiny ? 52 : (compact ? 60 : 70) }
+    private var squareSide: CGFloat { tiny ? 38 : (compact ? 42 : 46) }
+
+    /// Обложка или текст песни в оставшемся месте.
+    @ViewBuilder private func middle(in size: CGSize) -> some View {
+        let gap: CGFloat = compact ? 8 : 16
+        let side: CGFloat = max(60, min(size.width, size.height - gap))
+        if showLyrics {
+            LyricsView().frame(width: size.width, height: size.height)
+        } else {
+            artwork(side: side).frame(width: size.width, height: size.height, alignment: .center)
+        }
+    }
+
     // MARK: - Шапка
 
     private var header: some View {
@@ -86,13 +99,13 @@ struct PlayerScreen: View {
         }
         .foregroundColor(.primary)
         .padding(.horizontal, -12)
-        .padding(.top, 6)
+        .padding(.top, compact ? 0 : 6)
     }
 
     // MARK: - Обложка
 
     private func artwork(side: CGFloat) -> some View {
-        ArtworkView(url: player.current?.artworkUrl, size: max(120, side), cornerRadius: 16)
+        ArtworkView(url: player.current?.artworkUrl, size: side, cornerRadius: compact ? 12 : 16)
             .shadow(color: Color.black.opacity(0.35), radius: 16, y: 8)
             .id(player.current?.artworkUrl ?? "")
             .gesture(DragGesture(minimumDistance: 30).onEnded { g in
@@ -106,14 +119,14 @@ struct PlayerScreen: View {
     // MARK: - Название и кнопки справа
 
     private var titleRow: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(spacing: tiny ? 6 : 10) {
+            VStack(alignment: .leading, spacing: tiny ? 2 : 4) {
                 Text(player.current?.title ?? "")
-                    .font(.title3.weight(.bold))
+                    .font((tiny ? Font.headline : Font.title3).weight(.bold))
                     .lineLimit(1)
                     .onLongPressGesture { copy(player.current?.title) }
                 Text(player.current?.artistNames ?? "")
-                    .font(.body)
+                    .font(tiny ? .subheadline : .body)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .onLongPressGesture { copy(player.current?.artistNames) }
@@ -124,7 +137,7 @@ struct PlayerScreen: View {
             Button(action: toggleLike) {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
                     .font(.system(size: 17, weight: .semibold))
-                    .frame(width: 46, height: 46)
+                    .frame(width: squareSide, height: squareSide)
                     .background(Color.secondary.opacity(0.2))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .foregroundColor(isLiked ? .red : .primary)
@@ -142,7 +155,7 @@ struct PlayerScreen: View {
             case .downloading(let p):
                 Button(action: { downloads.cancel(t.id) }) {
                     Text("\(Int(p * 100))%").font(.caption2.monospacedDigit())
-                        .frame(width: 46, height: 46).background(Color.secondary.opacity(0.2))
+                        .frame(width: squareSide, height: squareSide).background(Color.secondary.opacity(0.2))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).foregroundColor(.primary)
                 }
             default:
@@ -154,7 +167,7 @@ struct PlayerScreen: View {
     private func roundLabel(_ symbol: String) -> some View {
         Image(systemName: symbol)
             .font(.system(size: 17, weight: .semibold))
-            .frame(width: 46, height: 46)
+            .frame(width: squareSide, height: squareSide)
             .background(Color.secondary.opacity(0.2))
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .foregroundColor(.primary)
@@ -217,10 +230,10 @@ struct PlayerScreen: View {
     // MARK: - Управление
 
     private var controls: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: compact ? 10 : 12) {
             Button(action: player.skipPrevious) {
                 Image(systemName: "backward.end.fill").font(.title2)
-                    .frame(width: 70, height: 70)
+                    .frame(width: controlHeight, height: controlHeight)
                     .background(Color.secondary.opacity(0.2))
                     .clipShape(Circle())
             }
@@ -231,20 +244,20 @@ struct PlayerScreen: View {
                     } else {
                         HStack(spacing: 10) {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title2)
-                            Text(L(player.isPlaying ? "pause" : "play")).font(.title3.weight(.semibold))
+                            Text(L(player.isPlaying ? "pause" : "play")).font((tiny ? Font.headline : Font.title3).weight(.semibold)).lineLimit(1)
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 70)
+                .frame(maxWidth: .infinity, minHeight: controlHeight)
                 .foregroundColor(.black)
                 .background(Color.white)
-                .clipShape(RoundedRectangle(cornerRadius: player.isPlaying ? 22 : 35, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: player.isPlaying ? controlHeight * 0.32 : controlHeight / 2, style: .continuous))
                 .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
             }
             .layoutPriority(1)
             Button(action: player.skipNext) {
                 Image(systemName: "forward.end.fill").font(.title2)
-                    .frame(width: 70, height: 70)
+                    .frame(width: controlHeight, height: controlHeight)
                     .background(Color.secondary.opacity(0.2))
                     .clipShape(Circle())
             }

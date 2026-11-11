@@ -161,7 +161,7 @@ private struct LocalPlaylistContent: View {
             VStack(spacing: 10) {
                 PlaylistCover(playlist: LocalPlaylist(id: playlist.id, name: name, songCount: entries.count,
                                                       thumbnails: Array(entries.compactMap { $0.track.artworkUrl }.prefix(4)),
-                                                      thumbnailUrl: nil, isEditable: playlist.isEditable), size: 170)
+                                                      thumbnailUrl: nil, isEditable: playlist.isEditable), size: UIMetrics.scaled(170))
                 if renaming {
                     TextField(L("playlist_name"), text: $name, onCommit: commitRename)
                         .multilineTextAlignment(.center)

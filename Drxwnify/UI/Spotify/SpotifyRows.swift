@@ -91,7 +91,7 @@ struct SpotifyHeader: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ArtworkView(url: imageUrl, size: 220, cornerRadius: 12, circle: circle,
+            ArtworkView(url: imageUrl, size: min(220, UIMetrics.width * 0.6), cornerRadius: 12, circle: circle,
                         placeholderSymbol: circle ? "person.fill" : "music.note.list")
                 .shadow(color: Color.black.opacity(0.4), radius: 14, y: 6)
             Text(title).font(.title2.weight(.bold)).multilineTextAlignment(.center)
