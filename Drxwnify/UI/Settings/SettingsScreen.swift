@@ -238,6 +238,8 @@ struct PrivacySettingsScreen: View {
 
 struct StorageSettingsScreen: View {
     @EnvironmentObject private var downloads: DownloadManager
+    @EnvironmentObject private var env: AppEnvironment
+    private var settings: TypedStore { env.prefs.settings }
     @State private var confirmClear = false
 
     var body: some View {
@@ -248,6 +250,7 @@ struct StorageSettingsScreen: View {
                     Spacer()
                     Text(ByteCountFormatter.string(fromByteCount: Int64(downloads.totalBytes), countStyle: .file)).foregroundColor(.secondary)
                 }
+                PrefToggle(title: L("ios_auto_download_like"), key: PK.autoDownloadOnLike, defaultValue: false, settings: settings)
                 Button(L("clear_all_downloads")) { confirmClear = true }
                     .foregroundColor(.red)
                     .disabled(downloads.totalBytes == 0)

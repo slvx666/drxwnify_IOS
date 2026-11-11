@@ -152,3 +152,9 @@
 "ios_lastfm_password" = "Пароль";
 "ios_lastfm_login" = "Войти";
 "ios_lastfm_login_hint" = "Пароль уходит только в Last.fm и не сохраняется: хранится ключ сессии.";
+"ios_send_files" = "Отправить файлами";
+"ios_save_to_files" = "Сохранить в «Файлы»";
+"ios_export_csv" = "Экспорт в CSV";
+"ios_export_m3u" = "Экспорт в M3U";
+"ios_no_downloaded_selected" = "Среди выбранных нет скачанных треков";
+"ios_auto_download_like" = "Скачивать при лайке";

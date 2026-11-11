@@ -91,7 +91,12 @@ final class AppEnvironment: ObservableObject {
                 if let t = t { lf.scrobble(t) }
             }
         }
-        likes.onLike = { t, on in lf.love(t, on) }
+        let dl = downloads, st = prefs.settings
+        likes.onLike = { t, on in
+            lf.love(t, on)
+            // DL-010: лайк — сразу скачать (настройка «Скачивать при лайке»).
+            if on, st.get(PK.autoDownloadOnLike) ?? false { DispatchQueue.main.async { dl.download([t]) } }
+        }
         f.onFriendNow = { now in
             let wanted = now.track.track
             let position = Double(now.positionNow()) / 1000

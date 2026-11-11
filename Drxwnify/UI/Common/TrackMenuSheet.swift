@@ -43,6 +43,9 @@ struct TrackMenuSheet: View {
                     item(L("share"), "arrowshape.turn.up.right") {
                         shareItems = [AppLinks.trackLink(mediaId: track.id, title: track.title, by: track.artistNames) ?? "\(track.artistNames) — \(track.title)"]
                     }
+                    if downloads.fileURL(track.id) != nil {
+                        item(L("ios_send_files"), "doc.badge.arrow.up") { shareItems = downloads.exportCopies([track]) }
+                    }
                     ForEach(track.artists.filter { !($0.id ?? "").isEmpty }, id: \.self) { a in
                         item(L("view_artist"), "person", subtitle: a.name) {
                             go(AppLinks.Target(kind: .artist, id: a.id ?? "", title: a.name, by: nil))

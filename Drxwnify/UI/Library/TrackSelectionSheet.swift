@@ -11,6 +11,8 @@ struct TrackSelectionSheet: View {
     @Environment(\.presentationMode) private var presentation
     @State private var selected = Set<Int>()
     @State private var shareItems: [Any]?
+    @State private var filesToSave: [URL]?
+    @State private var notice: String?
 
     private var picked: [Track] { selected.sorted().compactMap { tracks.indices.contains($0) ? tracks[$0] : nil } }
     private var allBlocked: Bool { !picked.isEmpty && picked.allSatisfy(blocked.isBlocked) }
@@ -44,14 +46,49 @@ struct TrackSelectionSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(
                 leading: Button(L("close")) { presentation.wrappedValue.dismiss() },
-                trailing: Button(selected.count == tracks.count ? L("ios_select_none") : L("ios_select_all")) {
-                    selected = selected.count == tracks.count ? [] : Set(tracks.indices)
+                trailing: HStack(spacing: 16) {
+                    Button(selected.count == tracks.count ? L("ios_select_none") : L("ios_select_all")) {
+                        selected = selected.count == tracks.count ? [] : Set(tracks.indices)
+                    }
+                    exportMenu
                 })
         }
         .navigationViewStyle(StackNavigationViewStyle())
         .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) {
             ShareSheet(items: shareItems ?? [])
         }
+        .background(EmptyView().sheet(isPresented: Binding(get: { filesToSave != nil }, set: { if !$0 { filesToSave = nil } })) {
+            ExportToFiles(urls: filesToSave ?? [])
+        })
+        .alert(isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
+            Alert(title: Text(notice ?? ""))
+        }
+    }
+
+    /// Выбранные, а если ничего не выбрано — все.
+    private var scope: [Track] { selected.isEmpty ? tracks : picked }
+
+    /// Экспорт (DL-004, DL-012, DL-016): файлы скачанного — отправить или сохранить в «Файлы»; список — CSV или M3U.
+    private var exportMenu: some View {
+        Menu {
+            Button(action: { shareDownloaded(toFiles: false) }) { Label(L("ios_send_files"), systemImage: "square.and.arrow.up") }
+            Button(action: { shareDownloaded(toFiles: true) }) { Label(L("ios_save_to_files"), systemImage: "folder") }
+            Button(action: { exportList("csv") }) { Label(L("ios_export_csv"), systemImage: "tablecells") }
+            Button(action: { exportList("m3u") }) { Label(L("ios_export_m3u"), systemImage: "music.note.list") }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+    }
+
+    private func shareDownloaded(toFiles: Bool) {
+        let urls = downloads.exportCopies(scope)
+        if urls.isEmpty { notice = L("ios_no_downloaded_selected"); return }
+        if toFiles { filesToSave = urls } else { shareItems = urls }
+    }
+
+    private func exportList(_ ext: String) {
+        let text = ext == "csv" ? PlaylistExporter.csv(scope) : PlaylistExporter.m3u(scope)
+        if let url = PlaylistExporter.file(text, name: "Drxwnify", ext: ext) { shareItems = [url] }
     }
 
     private var actionBar: some View {
