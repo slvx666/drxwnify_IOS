@@ -109,3 +109,23 @@
 "ios_chat_readonly" = "Only friends can be messaged";
 "ios_invite_title" = "Friend invite";
 "ios_invite_message" = "Add “%@” as a friend?";
+
+"ios_chats_empty" = "No chats yet. Open a friend and say hi.";
+"ios_listen_tab_empty" = "None of your friends is listening right now.";
+"ios_listen_tab_hint" = "Friends who are listening now and allow listening along. Your player follows theirs.";
+"ios_track_info_audio" = "Audio";
+"ios_track_info_source" = "Source";
+"ios_track_info_codec" = "Codec";
+"ios_track_info_bitrate" = "Bitrate";
+"ios_track_info_title" = "Title";
+"ios_track_info_artists" = "Artists";
+"ios_track_info_album" = "Album";
+"ios_track_info_duration" = "Duration";
+"ios_player" = "Player";
+"ios_delete" = "Delete";
+"ios_theme_dark" = "Dark";
+"ios_themes_later" = "Android themes (Gruvbox, Sakura, Catppuccin and more) are coming in later versions.";
+"ios_update_checking" = "Checking GitHub…";
+"ios_update_latest" = "You have the latest version";
+"ios_update_available" = "Version %@ is available — open release";
+"ios_filter_local" = "Local";

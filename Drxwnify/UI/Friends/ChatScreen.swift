@@ -12,6 +12,7 @@ struct ChatScreen: View {
     @State private var text = ""
     @State private var replyTo: ChatMessage?
     @State private var editing: ChatMessage?
+    @StateObject private var keyboard = KeyboardWatcher()
 
     private static let quickReactions = ["❤️", "🔥", "😂", "👍", "😮", "😢"]
 
@@ -38,10 +39,10 @@ struct ChatScreen: View {
                 }
             }
             inputBar
+                .padding(.bottom, miniPlayerGap)
         }
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarItems(trailing: currentTrackButton)
         .hidesTabChrome()
         .onAppear {
             chats.openPeer = peer
@@ -59,12 +60,18 @@ struct ChatScreen: View {
         }
     }
 
-    /// Отправить в чат то, что играет сейчас.
+    /// Как на Android: строка ввода стоит над мини-плеером; с клавиатурой мини-плеер уходит под неё.
+    private var miniPlayerGap: CGFloat {
+        if #available(iOS 26.0, *) { return 0 }
+        return player.current != nil && !keyboard.visible ? MiniPlayerView.classicHeight + 4 : 0
+    }
+
+    /// Отправить в чат то, что играет сейчас (значок ♪ справа, как на Android).
     private var currentTrackButton: some View {
         Button(action: {
             if let t = player.current { chats.send(peer, text: "", music: [ChatMusic.of(t)]) }
         }) {
-            Image(systemName: "music.note.list")
+            Image(systemName: "music.note").font(.system(size: 22, weight: .semibold)).frame(width: 36, height: 38)
         }
         .disabled(player.current == nil || !chats.canWrite(peer))
     }
@@ -175,10 +182,14 @@ struct ChatScreen: View {
                     .background(Capsule().fill(Color.secondary.opacity(0.18)))
                     .disabled(!chats.canWrite(peer))
                     .onChange(of: text) { t in if !t.isEmpty && editing == nil { chats.typingNow(peer) } }
-                Button(action: send) {
-                    Image(systemName: editing != nil ? "checkmark.circle.fill" : "arrow.up.circle.fill").font(.system(size: 30))
+                if text.trimmingCharacters(in: .whitespaces).isEmpty && editing == nil {
+                    currentTrackButton
+                } else {
+                    Button(action: send) {
+                        Image(systemName: editing != nil ? "checkmark.circle.fill" : "arrow.up.circle.fill").font(.system(size: 30))
+                    }
+                    .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             .padding(.horizontal, 10)
         }
@@ -203,4 +214,18 @@ struct ChatScreen: View {
         f.dateFormat = Calendar.current.isDateInToday(d) ? "HH:mm" : "dd.MM HH:mm"
         return f.string(from: d)
     }
+}
+
+/// Видна ли клавиатура (iOS 14 без `keyboardLayoutGuide` в SwiftUI).
+final class KeyboardWatcher: ObservableObject {
+    @Published private(set) var visible = false
+    private var tokens: [NSObjectProtocol] = []
+
+    init() {
+        let c = NotificationCenter.default
+        tokens.append(c.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in self?.visible = true })
+        tokens.append(c.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in self?.visible = false })
+    }
+
+    deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
 }

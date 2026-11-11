@@ -1,10 +1,11 @@
 import SwiftUI
 
 enum AppTab: Hashable {
-    case home, search, together, library
+    case home, search, library
 }
 
-/// Корень: 4 вкладки (UI-001) и мини-плеер над навигацией (UI-051).
+/// Корень: 3 вкладки, как на Android (UI-001): Главная, Поиск, Библиотека; «Вместе» — значок в шапке.
+/// Мини-плеер над навигацией (UI-051).
 struct RootView: View {
     @State private var tab: AppTab = .home
     @State private var showPlayer = false
@@ -17,7 +18,7 @@ struct RootView: View {
     var body: some View {
         content
             .onOpenURL { url in
-                if env.friends.openInvite(url) { tab = .together; return }
+                if env.friends.openInvite(url) { tab = .home; env.showTogether = true; return }
                 if let t = AppLinks.parse(url) { env.linkTarget = t }
             }
             .alert(isPresented: Binding(get: { env.friends.invite != nil }, set: { if !$0 { env.friends.invite = nil } })) {
@@ -40,6 +41,18 @@ struct RootView: View {
                 .environmentObject(env.friends)
                 .environmentObject(env.chats)
                 .preferredColorScheme(.dark)
+            })
+            .background(EmptyView().sheet(item: $env.trackMenu) { req in
+                TrackMenuSheet(track: req.track,
+                               isCurrent: player.current?.id == req.track.id,
+                               navigate: { env.linkTarget = $0 },
+                               addToPlaylist: { env.addToPlaylist = TrackBatch(tracks: [req.track]) })
+                    .environmentObject(env)
+                    .environmentObject(player)
+                    .environmentObject(env.likes)
+                    .environmentObject(env.downloads)
+                    .preferredColorScheme(.dark)
+                    .modifier(MediumSheet())
             })
             .background(EmptyView().sheet(item: $env.addToPlaylist) { batch in
                 AddToPlaylistSheet(batch: batch)
@@ -68,11 +81,9 @@ struct RootView: View {
         } else {
             ZStack(alignment: .bottom) {
                 tabs
-                if !env.chromeHidden {
-                    MiniPlayerView(style: .classic, showPlayer: $showPlayer)
-                        .padding(.bottom, Self.classicTabBarHeight)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                }
+                MiniPlayerView(style: .classic, showPlayer: $showPlayer)
+                    .padding(.bottom, env.chromeHidden ? 0 : Self.classicTabBarHeight)
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
             }
         }
     }
@@ -85,10 +96,6 @@ struct RootView: View {
             tabPage(SearchScreen())
                 .tabItem { Label(L("search"), systemImage: "magnifyingglass") }
                 .tag(AppTab.search)
-            tabPage(TogetherScreen())
-                .tabItem { Label(L("together"), systemImage: "person.2.fill") }
-                .modifier(UnreadBadge(count: env.chats.unreadTotal))
-                .tag(AppTab.together)
             tabPage(LibraryScreen())
                 .tabItem { Label(L("filter_library"), systemImage: "music.note.list") }
                 .tag(AppTab.library)
@@ -114,7 +121,7 @@ struct MiniPlayerInset: ViewModifier {
 
 extension View {
     func miniPlayerInset() -> some View { modifier(MiniPlayerInset()) }
-    /// Прячет мини-плеер и панель вкладок, пока экран открыт (чат).
+    /// Прячет панель вкладок, пока экран открыт («Вместе», чат).
     func hidesTabChrome() -> some View { modifier(HidesTabChrome()) }
 }
 
@@ -130,8 +137,8 @@ struct HidesTabChrome: ViewModifier {
                 content.background(TabBarHider())
             }
         }
-        .onAppear { env.chromeHidden = true }
-        .onDisappear { env.chromeHidden = false }
+        .onAppear { env.chromeHiders += 1 }
+        .onDisappear { env.chromeHiders = max(0, env.chromeHiders - 1) }
     }
 }
 
@@ -202,6 +209,47 @@ struct UnreadBadge: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 15.0, *) {
             content.badge(count)
+        } else {
+            content
+        }
+    }
+}
+
+/// Значки в шапке главной и библиотеки, как на Android: история, «Вместе» (с числом непрочитанных), настройки.
+struct TopBarIcons: View {
+    var together: Binding<Bool>?
+    @EnvironmentObject private var env: AppEnvironment
+    @EnvironmentObject private var chats: ChatHub
+    @State private var localTogether = false
+
+    var body: some View {
+        HStack(spacing: 18) {
+            NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath") }
+            NavigationLink(destination: TogetherScreen(), isActive: together ?? $localTogether) {
+                Image(systemName: "person.2")
+                    .overlay(badge, alignment: .topTrailing)
+            }
+            NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape") }
+        }
+        .font(.system(size: 17, weight: .regular))
+    }
+
+    @ViewBuilder private var badge: some View {
+        if chats.unreadTotal > 0 {
+            Text("\(min(chats.unreadTotal, 99))")
+                .font(.system(size: 10, weight: .bold)).foregroundColor(.white)
+                .padding(.horizontal, 4).frame(minWidth: 16, minHeight: 16)
+                .background(Capsule().fill(Color.red))
+                .offset(x: 9, y: -7)
+        }
+    }
+}
+
+/// Лист на половину экрана с iOS 16 (как нижний лист Android), раньше — обычный.
+struct MediumSheet: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *) {
+            content.presentationDetents([.medium, .large]).presentationDragIndicator(.hidden)
         } else {
             content
         }

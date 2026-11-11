@@ -8,12 +8,14 @@ struct TogetherScreen: View {
     var body: some View {
         Group {
             if friends.hasProfile {
-                FriendsListView()
+                TogetherTabs()
             } else {
                 CreateProfileView()
             }
         }
         .navigationTitle(L("together"))
+        .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear {
             friends.startLive()
             chats.hold("screen", true)
@@ -23,6 +25,104 @@ struct TogetherScreen: View {
             friends.stopLive()
             chats.hold("screen", false)
         }
+    }
+}
+
+/// Вкладки «Вместе», как на Android: Чаты, Друзья, Слушать вместе; листаются свайпом.
+private struct TogetherTabs: View {
+    @EnvironmentObject private var chats: ChatHub
+    @State private var page = 1
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                tab(0, chats.unreadTotal > 0 ? "\(L("chats_title")) · \(chats.unreadTotal)" : L("chats_title"))
+                tab(1, L("friends_title"))
+                tab(2, L("listen_together"))
+            }
+            .padding(.horizontal, 8)
+            Divider()
+            TabView(selection: $page) {
+                ChatsListView().tag(0)
+                FriendsListView().tag(1)
+                ListenTogetherTab().tag(2)
+            }
+            .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+        }
+    }
+
+    private func tab(_ index: Int, _ title: String) -> some View {
+        Button(action: { withAnimation { page = index } }) {
+            VStack(spacing: 6) {
+                Text(title).font(.subheadline.weight(page == index ? .semibold : .regular)).lineLimit(1).minimumScaleFactor(0.8)
+                    .foregroundColor(page == index ? .accentColor : .secondary)
+                Capsule().fill(page == index ? Color.accentColor : Color.clear).frame(width: 36, height: 3)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 8)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+/// Вкладка «Чаты»: переписки по времени последнего сообщения.
+private struct ChatsListView: View {
+    @EnvironmentObject private var chats: ChatHub
+
+    var body: some View {
+        List {
+            ForEach(chats.previews) { p in
+                NavigationLink(destination: ChatScreen(peer: p.last.peer)) {
+                    ChatPreviewRow(preview: p)
+                }
+            }
+            if chats.previews.isEmpty {
+                Text(L("ios_chats_empty")).foregroundColor(.secondary)
+            }
+            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
+        }
+        .listStyle(PlainListStyle())
+    }
+}
+
+/// Вкладка «Слушать вместе»: друзья, которые сейчас слушают и разрешили слушать с ними.
+private struct ListenTogetherTab: View {
+    @EnvironmentObject private var friends: FriendsHub
+
+    private var live: [FriendsHub.Friend] {
+        friends.friends.filter { f in
+            guard let n = friends.data[f.pubkey]?.now else { return false }
+            return n.playing && n.listenAlong
+        }
+    }
+
+    var body: some View {
+        List {
+            if let id = friends.listeningTo {
+                Section {
+                    Button(action: friends.stopListenAlong) {
+                        Label(L("ios_listen_along_stop") + " · " + (friends.data[id]?.name ?? ""), systemImage: "stop.circle")
+                    }
+                }
+            }
+            Section(footer: Text(L("ios_listen_tab_hint"))) {
+                ForEach(live) { f in
+                    HStack {
+                        NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }
+                        Button(action: { friends.startListenAlong(f.pubkey) }) {
+                            Image(systemName: friends.listeningTo == f.pubkey ? "headphones.circle.fill" : "headphones")
+                                .font(.title3).foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                    }
+                }
+                if live.isEmpty {
+                    Text(L("ios_listen_tab_empty")).foregroundColor(.secondary)
+                }
+            }
+            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
+        }
+        .listStyle(InsetGroupedListStyle())
     }
 }
 
@@ -101,9 +201,26 @@ private struct FriendsListView: View {
                             }
                         }
                     }
-                    Button(action: { if let link = friends.inviteLink() { shareItems = [link] } }) {
-                        Label(L("ios_friends_invite"), systemImage: "person.badge.plus")
+                    HStack(spacing: 10) {
+                        Button(action: { if let link = friends.inviteLink() { shareItems = [link] } }) {
+                            Label(L("friends_invite_short"), systemImage: "link.badge.plus")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundColor(Color(.systemBackground))
+                                .background(Capsule().fill(Color.accentColor))
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
+                        Button(action: { showAdd = true }) {
+                            Label(L("friends_add"), systemImage: "person.badge.plus")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .foregroundColor(.primary)
+                                .background(Capsule().fill(Color.secondary.opacity(0.25)))
+                        }
+                        .buttonStyle(BorderlessButtonStyle())
                     }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
                 }
             }
             if !friends.requests.isEmpty {
@@ -125,20 +242,7 @@ private struct FriendsListView: View {
                     }
                 }
             }
-            if !chats.previews.isEmpty {
-                Section(header: Text(L("ios_chats"))) {
-                    ForEach(chats.previews) { p in
-                        NavigationLink(destination: ChatScreen(peer: p.last.peer)) {
-                            ChatPreviewRow(preview: p)
-                        }
-                    }
-                }
-            }
-            Section(header: HStack {
-                Text(L("ios_friends"))
-                Spacer()
-                Button(action: { showAdd = true }) { Image(systemName: "plus") }
-            }) {
+            Section(header: Text("\(L("friends_title")) · \(friends.friends.count)")) {
                 ForEach(sortedFriends) { f in
                     NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }
                 }

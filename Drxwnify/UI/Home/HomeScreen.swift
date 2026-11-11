@@ -8,9 +8,7 @@ struct HomeScreen: View {
     var body: some View {
         HomeContent(settings: env.prefs.settings)
             .navigationTitle(L("home"))
-            .navigationBarItems(trailing: NavigationLink(destination: SettingsScreen()) {
-                Image(systemName: "gearshape")
-            })
+            .navigationBarItems(trailing: TopBarIcons(together: $env.showTogether))
     }
 }
 

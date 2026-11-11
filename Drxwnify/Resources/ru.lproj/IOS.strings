@@ -109,3 +109,23 @@
 "ios_chat_readonly" = "Писать можно только друзьям";
 "ios_invite_title" = "Приглашение в друзья";
 "ios_invite_message" = "Добавить «%@» в друзья?";
+
+"ios_chats_empty" = "Чатов пока нет. Открой друга и напиши ему.";
+"ios_listen_tab_empty" = "Сейчас никто из друзей не слушает музыку.";
+"ios_listen_tab_hint" = "Друзья, которые слушают сейчас и разрешили слушать с ними. Твой плеер пойдёт за их воспроизведением.";
+"ios_track_info_audio" = "Звук";
+"ios_track_info_source" = "Источник";
+"ios_track_info_codec" = "Кодек";
+"ios_track_info_bitrate" = "Битрейт";
+"ios_track_info_title" = "Название";
+"ios_track_info_artists" = "Исполнители";
+"ios_track_info_album" = "Альбом";
+"ios_track_info_duration" = "Длительность";
+"ios_player" = "Плеер";
+"ios_delete" = "Удалить";
+"ios_theme_dark" = "Тёмная";
+"ios_themes_later" = "Темы Android (Gruvbox, Сакура, Catppuccin и др.) появятся в следующих версиях.";
+"ios_update_checking" = "Проверяем на GitHub…";
+"ios_update_latest" = "Установлена последняя версия";
+"ios_update_available" = "Доступна версия %@ — открыть релиз";
+"ios_filter_local" = "Локальные";

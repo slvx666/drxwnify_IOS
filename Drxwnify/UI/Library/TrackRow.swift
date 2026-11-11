@@ -69,16 +69,17 @@ struct TrackRow: View {
                 ArtworkView(url: track.artworkUrl, size: 46)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(track.title).font(.body).lineLimit(1).foregroundColor(isCurrent ? .accentColor : .primary)
-                    Text(subtitle ?? track.artistNames).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                    HStack(spacing: 4) {
+                        if likes.liked.contains(track.id) {
+                            Image(systemName: "heart.fill").font(.caption2).foregroundColor(.red)
+                        }
+                        DownloadBadge(trackId: track.id)
+                        Text(subtitle ?? (track.durationMs > 0 ? "\(track.artistNames) • \(formatDuration(ms: track.durationMs))" : track.artistNames))
+                            .font(.caption).foregroundColor(.secondary).lineLimit(1)
+                    }
                 }
-                Spacer(minLength: 8)
-                DownloadBadge(trackId: track.id)
-                if likes.liked.contains(track.id) {
-                    Image(systemName: "heart.fill").font(.caption2).foregroundColor(.red)
-                }
-                if track.durationMs > 0 {
-                    Text(formatDuration(ms: track.durationMs)).font(.caption.monospacedDigit()).foregroundColor(.secondary)
-                }
+                Spacer(minLength: 4)
+                TrackMoreButton(track: track)
             }
             .contentShape(Rectangle())
         }
@@ -94,12 +95,9 @@ struct TrackPlayShuffleRow: View {
     @EnvironmentObject private var player: PlayerController
 
     var body: some View {
-        HStack(spacing: 12) {
-            button(L("play"), "play.fill", filled: true) { player.play(tracks, title: queueTitle, shuffled: false) }
-            button(L("shuffle"), "shuffle", filled: false) { player.play(tracks, title: queueTitle, shuffled: true) }
-            DownloadAllButton(tracks: tracks)
-        }
-        .disabled(tracks.isEmpty)
+        PlayButtonsRow(tracks: tracks,
+                       play: { player.play(tracks, title: queueTitle, shuffled: false) },
+                       shuffle: { player.play(tracks, title: queueTitle, shuffled: true) })
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
     }
@@ -272,11 +270,43 @@ struct DownloadAllButton: View {
                     Image(systemName: done == tracks.count && !tracks.isEmpty ? "arrow.down.circle.fill" : "arrow.down.circle")
                 }
             }
-            .frame(width: 52, height: 44)
+            .font(.system(size: 20))
+            .frame(width: 56, height: 56)
             .foregroundColor(done == tracks.count && !tracks.isEmpty ? .accentColor : .primary)
             .background(Color.secondary.opacity(0.2))
-            .clipShape(Capsule())
+            .clipShape(Circle())
         }
         .buttonStyle(PlainButtonStyle())
+    }
+}
+
+/// Кнопки под шапкой плейлиста, как на Android: «Перемешать» кружком, большая «Играть», «Скачать всё».
+struct PlayButtonsRow: View {
+    let tracks: [Track]
+    let play: () -> Void
+    let shuffle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 22) {
+            Spacer()
+            Button(action: shuffle) {
+                Image(systemName: "shuffle").font(.system(size: 20, weight: .semibold))
+                    .frame(width: 56, height: 56)
+                    .foregroundColor(.primary)
+                    .background(Circle().fill(Color.secondary.opacity(0.2)))
+            }
+            .buttonStyle(PlainButtonStyle())
+            Button(action: play) {
+                Image(systemName: "play.fill").font(.system(size: 30, weight: .semibold))
+                    .frame(width: 84, height: 84)
+                    .foregroundColor(Color(.systemBackground))
+                    .background(Circle().fill(Color.accentColor))
+            }
+            .buttonStyle(PlainButtonStyle())
+            DownloadAllButton(tracks: tracks)
+            Spacer()
+        }
+        .disabled(tracks.isEmpty)
+        .padding(.vertical, 4)
     }
 }

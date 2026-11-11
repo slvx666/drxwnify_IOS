@@ -16,6 +16,7 @@ struct PlayerScreen: View {
     @State private var showSources = false
     @State private var showLyrics = false
     @State private var shareItems: [Any]?
+    @State private var showMenu = false
 
     var body: some View {
         GeometryReader { geo in
@@ -30,8 +31,7 @@ struct PlayerScreen: View {
                 Spacer(minLength: 12)
                 titleRow
                 slider.padding(.top, 14)
-                controls.padding(.top, 10)
-                qualityLine.padding(.top, 10)
+                controls.padding(.top, 14)
                 Spacer(minLength: 8)
                 bottomBar
             }
@@ -48,6 +48,17 @@ struct PlayerScreen: View {
         .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) {
             ShareSheet(items: shareItems ?? [])
         }
+        .background(EmptyView().sheet(isPresented: $showMenu) {
+            if let t = player.current {
+                TrackMenuSheet(track: t, isCurrent: true, navigate: { open($0) },
+                               addToPlaylist: { open(nil) { env.addToPlaylist = TrackBatch(tracks: [t]) } },
+                               changeVersion: { showSources = true })
+                    .environmentObject(player)
+                    .environmentObject(likes)
+                    .environmentObject(downloads)
+                    .modifier(MediumSheet())
+            }
+        })
         .overlay(showSleep ? SleepTimerDialog(isPresented: $showSleep).environmentObject(player) : nil)
         .onChange(of: player.current == nil) { empty in
             if empty { presentation.wrappedValue.dismiss() }
@@ -66,11 +77,9 @@ struct PlayerScreen: View {
                 Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
             }
             Spacer()
-            VStack(spacing: 2) {
-                Text(L("now_playing")).font(.caption.weight(.semibold)).foregroundColor(.secondary)
-                if let title = player.queueTitle, !title.isEmpty {
-                    Text(title).font(.footnote.weight(.semibold)).lineLimit(1)
-                }
+            VStack(spacing: 3) {
+                Text(L("now_playing")).font(.headline)
+                qualityLine
             }
             Spacer()
             Color.clear.frame(width: 44, height: 44)
@@ -110,20 +119,15 @@ struct PlayerScreen: View {
                     .onLongPressGesture { copy(player.current?.artistNames) }
             }
             Spacer(minLength: 0)
+            roundButton("arrowshape.turn.up.right", action: share)
+            downloadButton
             Button(action: toggleLike) {
                 Image(systemName: isLiked ? "heart.fill" : "heart")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 42, height: 42)
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 46, height: 46)
                     .background(Color.secondary.opacity(0.2))
-                    .clipShape(Circle())
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .foregroundColor(isLiked ? .red : .primary)
-            }
-            roundButton("square.and.arrow.up", action: share)
-            downloadButton
-            Menu {
-                moreMenu
-            } label: {
-                roundLabel("ellipsis")
             }
         }
     }
@@ -138,7 +142,8 @@ struct PlayerScreen: View {
             case .downloading(let p):
                 Button(action: { downloads.cancel(t.id) }) {
                     Text("\(Int(p * 100))%").font(.caption2.monospacedDigit())
-                        .frame(width: 42, height: 42).background(Color.secondary.opacity(0.2)).clipShape(Circle()).foregroundColor(.primary)
+                        .frame(width: 46, height: 46).background(Color.secondary.opacity(0.2))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous)).foregroundColor(.primary)
                 }
             default:
                 Button(action: { downloads.download([t]) }) { roundLabel("arrow.down.to.line") }
@@ -148,10 +153,10 @@ struct PlayerScreen: View {
 
     private func roundLabel(_ symbol: String) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 16, weight: .semibold))
-            .frame(width: 42, height: 42)
+            .font(.system(size: 17, weight: .semibold))
+            .frame(width: 46, height: 46)
             .background(Color.secondary.opacity(0.2))
-            .clipShape(Circle())
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .foregroundColor(.primary)
     }
 
@@ -167,39 +172,13 @@ struct PlayerScreen: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
-    /// Закрывает плеер и открывает экран альбома или артиста.
-    private func open(_ target: AppLinks.Target) {
+    /// Закрывает плеер и открывает экран альбома или артиста (или выполняет `then`).
+    private func open(_ target: AppLinks.Target?, then: (() -> Void)? = nil) {
         presentation.wrappedValue.dismiss()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { env.linkTarget = target }
-    }
-
-    @ViewBuilder private var moreMenu: some View {
-        if let t = player.current {
-            if let albumId = t.albumId, !albumId.isEmpty {
-                Button(action: { open(AppLinks.Target(kind: .album, id: albumId, title: t.albumName, by: nil)) }) {
-                    Label(L("view_album"), systemImage: "square.stack")
-                }
-            }
-            ForEach(t.artists.filter { !($0.id ?? "").isEmpty }, id: \.self) { a in
-                Button(action: { open(AppLinks.Target(kind: .artist, id: a.id ?? "", title: a.name, by: nil)) }) {
-                    Label(t.artists.count > 1 ? a.name : L("view_artist"), systemImage: "person")
-                }
-            }
-            Button(action: {
-                presentation.wrappedValue.dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { env.addToPlaylist = TrackBatch(tracks: [t]) }
-            }) {
-                Label(L("add_to_playlist"), systemImage: "text.badge.plus")
-            }
-            Button(action: toggleLike) {
-                Label(L(isLiked ? "action_remove_like" : "action_like"), systemImage: isLiked ? "heart.slash" : "heart")
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            if let target = target { env.linkTarget = target }
+            then?()
         }
-        Button(action: share) { Label(L("share"), systemImage: "square.and.arrow.up") }
-        Button(action: { showSources = true }) { Label(L("audio_source_choose"), systemImage: "antenna.radiowaves.left.and.right") }
-        Button(action: { showSleep = true }) { Label(L("sleep_timer"), systemImage: "moon.zzz") }
-        Button(action: { showQueue = true }) { Label(L("queue"), systemImage: "list.bullet") }
-        Button(action: { player.clearQueue() }) { Label(L("ios_clear_queue"), systemImage: "trash") }
     }
 
     private func copy(_ text: String?) {
@@ -241,30 +220,33 @@ struct PlayerScreen: View {
         HStack(spacing: 12) {
             Button(action: player.skipPrevious) {
                 Image(systemName: "backward.end.fill").font(.title2)
-                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .frame(width: 70, height: 70)
                     .background(Color.secondary.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                    .clipShape(Circle())
             }
             Button(action: player.togglePlayPause) {
                 ZStack {
                     if player.isLoading {
                         ProgressView().progressViewStyle(CircularProgressViewStyle(tint: Color(.systemBackground)))
                     } else {
-                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title)
+                        HStack(spacing: 10) {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.title2)
+                            Text(L(player.isPlaying ? "pause" : "play")).font(.title3.weight(.semibold))
+                        }
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 64)
-                .foregroundColor(Color(.systemBackground))
-                .background(Color.primary)
-                .clipShape(RoundedRectangle(cornerRadius: player.isPlaying ? 20 : 32, style: .continuous))
+                .frame(maxWidth: .infinity, minHeight: 70)
+                .foregroundColor(.black)
+                .background(Color.white)
+                .clipShape(RoundedRectangle(cornerRadius: player.isPlaying ? 22 : 35, style: .continuous))
                 .animation(.easeInOut(duration: 0.2), value: player.isPlaying)
             }
             .layoutPriority(1)
             Button(action: player.skipNext) {
                 Image(systemName: "forward.end.fill").font(.title2)
-                    .frame(maxWidth: .infinity, minHeight: 64)
+                    .frame(width: 70, height: 70)
                     .background(Color.secondary.opacity(0.2))
-                    .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+                    .clipShape(Circle())
             }
             .disabled(!player.hasNext)
         }
@@ -280,8 +262,7 @@ struct PlayerScreen: View {
                 Text("\(L("ios_downloaded")) · \(s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased()) · \(s.bitrate / 1000) kbps")
                     .foregroundColor(.secondary)
             } else if let m = player.serving, let s = player.servingStream {
-                Text("\(m.provider.displayName) · \(s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased()) · \(s.bitrate / 1000) kbps")
-                    .foregroundColor(.secondary)
+                qualityText(kbps: s.bitrate / 1000, codec: s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased(), source: m.provider.displayName)
             } else if player.isLoading {
                 Text(L("ios_searching_audio")).foregroundColor(.secondary)
             } else {
@@ -292,6 +273,12 @@ struct PlayerScreen: View {
         .lineLimit(1)
         .contentShape(Rectangle())
         .onTapGesture { if player.current != nil { showSources = true } }
+    }
+
+    /// Как на Android: «320 kbps · MP3 · VK», битрейт зелёным от 256 kbps.
+    private func qualityText(kbps: Int, codec: String, source: String) -> Text {
+        let rate = Text("\(kbps) kbps").foregroundColor(kbps >= 256 ? .green : .secondary)
+        return rate + Text(" · \(codec) · \(source)").foregroundColor(.secondary)
     }
 
     // MARK: - Нижний ряд (как свёрнутая очередь на Android)
@@ -310,11 +297,10 @@ struct PlayerScreen: View {
             Spacer()
             barButton(player.repeatMode == .one ? "repeat.1" : "repeat", active: player.repeatMode != .off) { player.cycleRepeat() }
             Spacer()
-            Menu {
-                moreMenu
-            } label: {
+            Button(action: { showMenu = true }) {
                 Image(systemName: "ellipsis").rotationEffect(.degrees(90)).font(.system(size: 18)).frame(width: 44, height: 44)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.primary)
+                    .background(Circle().fill(Color.secondary.opacity(0.2)))
             }
         }
         .padding(.horizontal, -8)

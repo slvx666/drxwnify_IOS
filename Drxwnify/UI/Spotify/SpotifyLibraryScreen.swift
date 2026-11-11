@@ -7,6 +7,7 @@ struct LibraryScreen: View {
     var body: some View {
         SpotifyLibraryContent(settings: env.prefs.settings, session: env.spotifyTokens.state, library: env.library)
             .navigationTitle(L("filter_library"))
+            .navigationBarItems(trailing: TopBarIcons())
     }
 }
 
@@ -159,11 +160,11 @@ private struct SpotifyLibraryContent: View {
 
     private var list: some View {
         List {
-            Picker("", selection: $filter) {
-                ForEach(Filter.allCases) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(SegmentedPickerStyle())
-            .listRowBackground(Color.clear)
+            chips
+                .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
+                .listRowBackground(Color.clear)
+            toolsRow
+                .listRowBackground(Color.clear)
 
             if !isLinked {
                 loginRow
@@ -198,10 +199,39 @@ private struct SpotifyLibraryContent: View {
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(PlainListStyle())
-        .navigationBarItems(trailing: HStack(spacing: 16) {
+    }
+
+    /// Фишки-фильтры, как на Android: повторное нажатие снимает фильтр.
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach([Filter.playlists, .albums, .artists, .songs]) { f in
+                    Button(action: { filter = filter == f ? .all : f }) {
+                        Text(f == .songs ? L("ios_filter_local") : f.title)
+                            .font(.subheadline.weight(.medium))
+                            .padding(.horizontal, 16).frame(height: 36)
+                            .foregroundColor(filter == f ? Color(.systemBackground) : .primary)
+                            .background(Capsule().fill(filter == f ? Color.accentColor : Color.secondary.opacity(0.22)))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    /// Строка под фишками: порядок («Недавние»), новый плейлист, обновить.
+    private var toolsRow: some View {
+        HStack(spacing: 18) {
+            Text(L("lib_sort_recents")).font(.subheadline.weight(.medium))
+            Image(systemName: "arrow.down").font(.caption.weight(.semibold))
+            Spacer()
             Button(action: { creating = true }) { Image(systemName: "plus") }
+                .buttonStyle(BorderlessButtonStyle())
             Button(action: { reload(force: true) }) { Image(systemName: "arrow.clockwise") }
-        })
+                .buttonStyle(BorderlessButtonStyle())
+        }
+        .foregroundColor(.primary)
     }
 
     private func reloadIfNeeded() {

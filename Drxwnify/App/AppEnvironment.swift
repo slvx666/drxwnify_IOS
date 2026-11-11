@@ -23,8 +23,13 @@ final class AppEnvironment: ObservableObject {
     @Published var addToPlaylist: TrackBatch?
     /// Экран, который надо открыть поверх всего (ссылка, «перейти к альбому» из плеера).
     @Published var linkTarget: AppLinks.Target?
-    /// Экран без мини-плеера и панели вкладок (чат, как на Android).
-    @Published var chromeHidden = false
+    /// Сколько открытых экранов прячут панель вкладок («Вместе», чат — как на Android).
+    @Published var chromeHiders = 0
+    var chromeHidden: Bool { chromeHiders > 0 }
+    /// Открыть «Вместе» с главной (приглашение по ссылке, значок в шапке).
+    @Published var showTogether = false
+    /// Открытое меню трека (лист в `RootView`).
+    @Published var trackMenu: TrackMenuRequest?
 
     init() {
         prefs = Prefs()

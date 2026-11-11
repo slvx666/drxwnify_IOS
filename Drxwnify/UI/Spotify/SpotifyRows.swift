@@ -48,22 +48,19 @@ struct SpotifyTrackRow: View {
                     Text(track.name).font(.body).lineLimit(1)
                         .foregroundColor(isCurrent ? .accentColor : .primary)
                     HStack(spacing: 4) {
+                        if likes.liked.contains(FallbackIds.of(track.id)) {
+                            Image(systemName: "heart.fill").font(.caption2).foregroundColor(.red)
+                        }
+                        DownloadBadge(trackId: FallbackIds.of(track.id))
                         if track.explicit {
                             Image(systemName: "e.square.fill").font(.caption).foregroundColor(.secondary)
                         }
-                        Text(track.artistNames).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                        Text(track.durationMs > 0 ? "\(track.artistNames) • \(formatDuration(ms: track.durationMs))" : track.artistNames)
+                            .font(.caption).foregroundColor(.secondary).lineLimit(1)
                     }
                 }
-                Spacer(minLength: 8)
-                DownloadBadge(trackId: FallbackIds.of(track.id))
-                if likes.liked.contains(FallbackIds.of(track.id)) {
-                    Image(systemName: "heart.fill").font(.caption2).foregroundColor(.red)
-                }
-                if track.durationMs > 0 {
-                    Text(formatDuration(ms: track.durationMs))
-                        .font(.caption.monospacedDigit())
-                        .foregroundColor(.secondary)
-                }
+                Spacer(minLength: 4)
+                TrackMoreButton(track: Track(track, album: album))
             }
             .contentShape(Rectangle())
         }
@@ -82,9 +79,10 @@ struct SpotifyHeader: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            ArtworkView(url: imageUrl, size: 180, cornerRadius: 10, circle: circle,
+            ArtworkView(url: imageUrl, size: 220, cornerRadius: 12, circle: circle,
                         placeholderSymbol: circle ? "person.fill" : "music.note.list")
-            Text(title).font(.title3.weight(.bold)).multilineTextAlignment(.center)
+                .shadow(color: Color.black.opacity(0.4), radius: 14, y: 6)
+            Text(title).font(.title2.weight(.bold)).multilineTextAlignment(.center)
             if let subtitle = subtitle, !subtitle.isEmpty {
                 Text(subtitle).font(.subheadline).foregroundColor(.secondary).multilineTextAlignment(.center)
             }
@@ -143,16 +141,9 @@ struct PlayShuffleRow: View {
     @EnvironmentObject private var player: PlayerController
 
     var body: some View {
-        HStack(spacing: 12) {
-            button(L("play"), "play.fill", filled: true) {
-                player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: false)
-            }
-            button(L("shuffle"), "shuffle", filled: false) {
-                player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: true)
-            }
-            DownloadAllButton(tracks: tracks.map { Track($0, album: album) })
-        }
-        .disabled(tracks.isEmpty)
+        PlayButtonsRow(tracks: tracks.map { Track($0, album: album) },
+                       play: { player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: false) },
+                       shuffle: { player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: true) })
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
     }
