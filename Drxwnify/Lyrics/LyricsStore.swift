@@ -86,9 +86,19 @@ final class LyricsStore {
     /// Текст для трека: из кэша, иначе из сети. nil — не найден.
     func lyrics(for track: Track, refresh: Bool = false) async -> Lyrics? {
         if !refresh, let hit = cached(track.id) { return hit }
-        if let found = await fetchLrcLib(track) {
-            save(track, found.raw, provider: found.provider)
-            return found
+        let lrc = await fetchLrcLib(track)
+        // Синхронный текст LrcLib — сразу; иначе пробуем KuGou (как `LyricsProviderRegistry` на Android), обычный текст — запасной.
+        if let l = lrc, l.isSynced {
+            save(track, l.raw, provider: l.provider)
+            return l
+        }
+        if let k = await KuGouLyrics.fetch(track) {
+            save(track, k, provider: "KuGou")
+            return Lyrics(raw: k, provider: "KuGou")
+        }
+        if let l = lrc {
+            save(track, l.raw, provider: l.provider)
+            return l
         }
         return nil
     }
@@ -125,3 +135,78 @@ final class LyricsStore {
         return (synced ?? close.first).flatMap(pick)
     }
 }
+
+/// KuGou — перенос `kugou/.../KuGou.kt`: поиск песни, текст по hash или по ключевым словам, LRC в base64.
+enum KuGouLyrics {
+    private static let durationTolerance = 8
+
+    static func fetch(_ t: Track) async -> String? {
+        let title = normalizeTitle(t.title)
+        let artist = normalizeArtist(t.artistNames)
+        let keyword = "\(title) - \(artist)"
+        let duration = t.durationMs > 0 ? t.durationMs / 1000 : -1
+        if let songs = await json("https://mobileservice.kugou.com/api/v3/search/song",
+                                  ["version": "9108", "plat": "0", "pagesize": "8", "showtype": "0", "keyword": keyword]) {
+            for song in songs.obj("data")?.objects("info") ?? [] {
+                let d = song.int("duration") ?? 0
+                guard duration == -1 || abs(d - duration) <= durationTolerance, let hash = song.str("hash") else { continue }
+                if let c = await json("https://lyrics.kugou.com/search", ["ver": "1", "man": "yes", "client": "pc", "hash": hash])?.objects("candidates").first,
+                   let text = await download(c) {
+                    return text
+                }
+            }
+        }
+        var params = ["ver": "1", "man": "yes", "client": "pc", "keyword": keyword]
+        if duration > 0 { params["duration"] = String(duration * 1000) }
+        guard let c = await json("https://lyrics.kugou.com/search", params)?.objects("candidates").first else { return nil }
+        return await download(c)
+    }
+
+    private static func download(_ c: JSONObject) async -> String? {
+        guard let id = c.str("id"), let key = c.str("accesskey"),
+              let o = await json("https://lyrics.kugou.com/download", ["fmt": "lrc", "charset": "utf8", "client": "pc", "ver": "1", "id": id, "accesskey": key]),
+              let b64 = o.str("content"), let data = Data(base64Encoded: b64), let text = String(data: data, encoding: .utf8) else { return nil }
+        let out = normalize(text)
+        return out.isEmpty ? nil : out
+    }
+
+    private static func json(_ base: String, _ params: [String: String]) async -> JSONObject? {
+        var c = URLComponents(string: base)
+        c?.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+        guard let url = c?.url, let r = try? await HTTP.get(url, headers: [:], timeout: 8), r.isSuccess else { return nil }
+        return JSON.object(r.data)
+    }
+
+    private static func strip(_ s: String, _ patterns: [String]) -> String {
+        patterns.reduce(s) { $0.replacingOccurrences(of: $1, with: "", options: .regularExpression) }
+    }
+
+    static func normalizeTitle(_ t: String) -> String {
+        strip(t, [#"\(.*\)"#, "（.*）", "「.*」", "『.*』", "<.*>", "《.*》", "〈.*〉", "＜.*＞"]).trimmingCharacters(in: .whitespaces)
+    }
+
+    static func normalizeArtist(_ a: String) -> String {
+        let s = a.replacingOccurrences(of: ", ", with: "、").replacingOccurrences(of: " & ", with: "、")
+            .replacingOccurrences(of: ".", with: "").replacingOccurrences(of: "和", with: "、")
+        return strip(s, [#"\(.*\)"#, "（.*）"]).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Только строки с разметкой времени; шапка и хвост с «автор: …» отрезаются (как `normalize()` в Kotlin).
+    static func normalize(_ text: String) -> String {
+        let lines = text.components(separatedBy: .newlines).filter {
+            $0.range(of: #"^\[(\d\d):(\d\d)\.(\d{2,3})\].*"#, options: .regularExpression) != nil
+        }
+        guard !lines.isEmpty else { return "" }
+        func banned(_ l: String) -> Bool { l.range(of: #".+\].+[:：].+"#, options: .regularExpression) != nil }
+        var head = 0
+        for i in stride(from: min(30, lines.count - 1), through: 0, by: -1) where banned(lines[i]) { head = i + 1; break }
+        let filtered = Array(lines.dropFirst(head))
+        var tail = 0
+        let upper = min(lines.count - 30, lines.count - 1)
+        if upper >= 0 {
+            for i in stride(from: upper, through: 0, by: -1) where banned(lines[lines.count - 1 - i]) { tail = i + 1; break }
+        }
+        return filtered.dropLast(min(tail, filtered.count)).joined(separator: "\n")
+    }
+}
+
