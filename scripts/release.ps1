@@ -33,8 +33,12 @@ if (-not $exists) {
 
 $flags = @()
 if ($Prerelease) { $flags += "--prerelease" }
-gh release view $tag -R $Repo *> $null
-if ($LASTEXITCODE -eq 0) {
+# gh пишет «release not found» в stderr: в PowerShell 5.1 при Stop это ошибка, поэтому проверка — без Stop.
+$ErrorActionPreference = "Continue"
+gh release view $tag -R $Repo 2>&1 | Out-Null
+$found = $LASTEXITCODE -eq 0
+$ErrorActionPreference = "Stop"
+if ($found) {
     gh release upload $tag $ipa -R $Repo --clobber
     gh release edit $tag -R $Repo --notes-file $notes
 } else {
