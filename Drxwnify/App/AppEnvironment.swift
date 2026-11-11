@@ -36,6 +36,8 @@ final class AppEnvironment: ObservableObject {
     }
     /// Открыт чат: мини-плеер уходит, строка ввода стоит внизу (сообщил пользователь на 0.10.1).
     @Published var chatOpen = false
+    /// Кнопка «домой» в плеере: закрыть плеер и открыть главную.
+    @Published var homeRequest = 0
     /// Открыть «Вместе» с главной (приглашение по ссылке, значок в шапке).
     @Published var showTogether = false
     /// Открытое меню трека (лист в `RootView`).

@@ -27,6 +27,10 @@ struct RootView: View {
         content
             .onAppear { env.currentTab = Self.name(tab) }
             .onChange(of: tab) { env.currentTab = Self.name($0) }
+            .onChange(of: env.homeRequest) { _ in
+                showPlayer = false
+                tab = .home
+            }
             .onOpenURL { url in
                 if env.friends.openInvite(url) { tab = .home; env.showTogether = true; return }
                 if let t = AppLinks.parse(url) { env.linkTarget = t }
@@ -116,12 +120,13 @@ struct RootView: View {
                     }
                     if !env.chromeHidden {
                         CapsuleTabBar(tab: $tab)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .padding(.top, 2)
+                            .transition(.move(edge: .bottom))
                     }
                 }
                 .ignoresSafeArea(.keyboard, edges: .bottom)
             }
-            .animation(.easeOut(duration: 0.2), value: env.chromeHidden)
+            .animation(.easeInOut(duration: 0.25), value: env.chromeHidden)
             .animation(.easeOut(duration: 0.2), value: env.chatOpen)
         }
     }
@@ -156,13 +161,12 @@ struct RootView: View {
 
 /// Отступ снизу под мини-плеер и свою нижнюю панель (на iOS 26 система делает это сама).
 struct MiniPlayerInset: ViewModifier {
-    @EnvironmentObject private var env: AppEnvironment
-
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
         } else {
-            content.padding(.bottom, MiniPlayerView.classicHeight + 8 + (env.chromeHidden ? 0 : CapsuleTabBar.height + 4))
+            // Постоянный отступ (мини-плеер + панель): если менять его вместе с панелью, список дёргается при переходе.
+            content.padding(.bottom, MiniPlayerView.classicHeight + 8 + CapsuleTabBar.height)
         }
     }
 }
@@ -230,10 +234,10 @@ private struct ChromeSignal: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: Controller, context: Context) { controller.change = change }
 }
 
-/// Своя нижняя панель: капсула той же ширины и высоты, что мини-плеер.
+/// Своя нижняя панель (вместо системной, чтобы прятать её сразу и плавно): во всю ширину, как системная.
 struct CapsuleTabBar: View {
     @Binding var tab: AppTab
-    static var height: CGFloat { MiniPlayerView.classicHeight }
+    static var height: CGFloat { UIMetrics.isNarrow ? 52 : 56 }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -242,11 +246,9 @@ struct CapsuleTabBar: View {
             item(.library, L("filter_library"), "music.note.list")
         }
         .frame(height: Self.height)
-        .background(BlurView(style: .systemChromeMaterial))
-        .clipShape(Capsule(style: .continuous))
-        .overlay(Capsule(style: .continuous).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
-        .padding(.horizontal, 10)
-        .padding(.bottom, 4)
+        // Как системная панель: во всю ширину до краёв и до низа экрана, материал iOS и линия сверху.
+        .background(BlurView(style: .systemChromeMaterial).ignoresSafeArea(edges: .bottom))
+        .overlay(Rectangle().fill(Color.secondary.opacity(0.3)).frame(height: 0.5), alignment: .top)
     }
 
     private func item(_ t: AppTab, _ title: String, _ symbol: String) -> some View {
@@ -255,9 +257,8 @@ struct CapsuleTabBar: View {
             tab = t
         }) {
             VStack(spacing: 3) {
-                Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
-                    .frame(width: 54, height: 28)
-                    .background(Capsule().fill(tab == t ? Color.accentColor.opacity(0.22) : Color.clear))
+                Image(systemName: symbol).font(.system(size: 21, weight: .regular))
+                    .frame(height: 26)
                 Text(title).font(.system(size: 10, weight: tab == t ? .semibold : .regular)).lineLimit(1)
             }
             .foregroundColor(tab == t ? .accentColor : .secondary)

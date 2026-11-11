@@ -508,6 +508,20 @@ final class PlayerController: NSObject, ObservableObject {
             let d = item.duration.seconds
             if d.isFinite && d > 0 { duration = d }
             updateNowPlaying()
+            // Источник не сообщил битрейт и замер по размеру не удался — берём оценку AVFoundation.
+            if (servingStream?.bitrate ?? 0) <= 0 {
+                let asset = item.asset
+                asset.loadValuesAsynchronously(forKeys: ["tracks"]) { [weak self] in
+                    let rate = asset.tracks(withMediaType: .audio).first?.estimatedDataRate ?? 0
+                    guard rate > 0 else { return }
+                    DispatchQueue.main.async {
+                        guard let self = self, item === self.currentItem, (self.servingStream?.bitrate ?? 0) <= 0 else { return }
+                        let kbps = PlayerController.roundKbps(Double(rate) / 1000)
+                        self.servingStream?.bitrate = kbps * 1000
+                        self.currentAudio?.stream.bitrate = kbps * 1000
+                    }
+                }
+            }
         case .failed:
             playbackFailed()
         default:

@@ -17,19 +17,28 @@ struct PlayerScreen: View {
     @State private var showLyrics = false
     @State private var shareItems: [Any]?
     @State private var showMenu = false
+    /// Прослушивания Spotify у играющего трека (из ответа альбома, как на Android 2.1.5).
+    @State private var plays: Int?
+    @State private var showCover = false
+    @State private var seekHint: Int?
 
     var body: some View {
         // Пункт 0б: обложка (или текст) занимает только оставшееся место, поэтому нижний ряд виден на любом экране,
         // включая 320×568 («Увеличенный» масштаб). Кнопки на коротком экране меньше.
+        // Как на Android: обложка сверху, название сразу под ней, управление внизу, между ними — воздух.
         VStack(spacing: 0) {
             header
             GeometryReader { box in
-                middle(in: box.size)
+                VStack(spacing: 0) {
+                    middle(in: CGSize(width: box.size.width, height: coverBox(box.size)))
+                        .frame(height: coverBox(box.size))
+                    titleRow.padding(.top, compact ? 12 : 18)
+                    Spacer(minLength: 6)
+                }
             }
-            titleRow.padding(.top, compact ? 4 : 8)
-            slider.padding(.top, compact ? 4 : 12)
+            slider.padding(.top, compact ? 2 : 8)
             controls.padding(.top, compact ? 6 : 12)
-            bottomBar.padding(.top, compact ? 4 : 10)
+            bottomBar.padding(.top, compact ? 6 : 12)
         }
         .padding(.horizontal, compact ? 16 : 24)
         .padding(.bottom, compact ? 4 : 8)
@@ -60,11 +69,13 @@ struct PlayerScreen: View {
             if empty { presentation.wrappedValue.dismiss() }
         }
         .onAppear {
+            loadPlays()
             if let t = player.current { likes.refresh([t]) }
             UIApplication.shared.isIdleTimerDisabled = env.prefs.settings.get(PK.keepScreenOn) ?? false
         }
         .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: player.current?.id) { _ in
+            loadPlays()
             if let t = player.current { likes.refresh([t]) }
         }
     }
@@ -73,7 +84,13 @@ struct PlayerScreen: View {
     private var compact: Bool { UIMetrics.height < 700 }
     private var tiny: Bool { UIMetrics.isShort }
     private var controlHeight: CGFloat { tiny ? 52 : (compact ? 60 : 70) }
-    private var squareSide: CGFloat { tiny ? 38 : (compact ? 42 : 46) }
+    private var squareSide: CGFloat { tiny ? 34 : (compact ? 38 : 42) }
+
+    /// Высота места под обложку: квадрат по ширине, но так, чтобы под ним поместилось название.
+    private func coverBox(_ size: CGSize) -> CGFloat {
+        let titleSpace: CGFloat = compact ? 74 : 92
+        return max(80, min(size.width, size.height - titleSpace))
+    }
 
     /// Обложка или текст песни в оставшемся месте.
     @ViewBuilder private func middle(in size: CGSize) -> some View {
@@ -96,12 +113,22 @@ struct PlayerScreen: View {
                 Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
             }
             Spacer()
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 Text(L("now_playing")).font(.headline)
+                if let album = player.current?.albumName, !album.isEmpty {
+                    Text(album).font(.subheadline).lineLimit(1)
+                        .onTapGesture { openAlbum() }
+                }
                 qualityLine
+                if let plays = plays {
+                    Text(L("ios_spotify_plays", NumberFormatter.localizedString(from: NSNumber(value: plays), number: .decimal)))
+                        .font(.caption).foregroundColor(.secondary).lineLimit(1)
+                }
             }
             Spacer()
-            Color.clear.frame(width: 44, height: 44)
+            Button(action: { env.homeRequest += 1 }) {
+                Image(systemName: "house").font(.title3).frame(width: 44, height: 44)
+            }
         }
         .foregroundColor(.primary)
         .padding(.horizontal, -12)
@@ -111,30 +138,86 @@ struct PlayerScreen: View {
     // MARK: - Обложка
 
     private func artwork(side: CGFloat) -> some View {
-        ArtworkView(url: player.current?.artworkUrl, size: side, cornerRadius: compact ? 12 : 16)
+        ArtworkView(url: SpotifyImageCDN.large(player.current?.artworkUrl), size: side, cornerRadius: compact ? 12 : 16)
             .shadow(color: Color.black.opacity(0.35), radius: 16, y: 8)
             .id(player.current?.artworkUrl ?? "")
+            .overlay(seekOverlay(side))
             .gesture(DragGesture(minimumDistance: 30).onEnded { g in
                 guard abs(g.translation.width) > abs(g.translation.height) else { return }
                 if g.translation.width < -50 { player.skipNext() }
                 if g.translation.width > 50 { player.skipPrevious() }
             })
-            .onTapGesture(count: 2) { player.togglePlayPause() }
+            // Как на Android: двойной тап по левому/правому краю — перемотка на 10 с; тап по середине — обложка крупно.
+            .overlay(HStack(spacing: 0) {
+                Color.clear.contentShape(Rectangle()).frame(width: side * 0.33)
+                    .onTapGesture(count: 2) { seek(-10) }
+                Color.clear.contentShape(Rectangle())
+                    .onTapGesture { showCover = true }
+                Color.clear.contentShape(Rectangle()).frame(width: side * 0.33)
+                    .onTapGesture(count: 2) { seek(10) }
+            })
+            .sheet(isPresented: $showCover) {
+                CoverViewer(url: SpotifyImageCDN.large(player.current?.artworkUrl))
+            }
+    }
+
+    @ViewBuilder private func seekOverlay(_ side: CGFloat) -> some View {
+        if let s = seekHint {
+            Label(s > 0 ? "+\(s) s" : "\(s) s", systemImage: s > 0 ? "goforward" : "gobackward")
+                .font(.headline).foregroundColor(.white)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Capsule().fill(Color.black.opacity(0.55)))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: s > 0 ? .trailing : .leading)
+                .padding(16)
+                .transition(.opacity)
+        }
+    }
+
+    private func seek(_ delta: Int) {
+        player.seek(to: max(0, min(player.duration, player.position + Double(delta))))
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation { seekHint = (seekHint ?? 0) * (seekHint.map { ($0 > 0) == (delta > 0) } == true ? 1 : 0) + delta }
+        let mark = seekHint
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { if seekHint == mark { withAnimation { seekHint = nil } } }
+    }
+
+    private func openAlbum() {
+        guard let t = player.current, let id = t.albumId, !id.isEmpty, t.catalogId != nil else { return }
+        open(AppLinks.Target(kind: .album, id: id, title: t.albumName, by: nil))
+    }
+
+    private func openArtist() {
+        guard let a = player.current?.artists.first, let id = a.id, !id.isEmpty else { return }
+        open(AppLinks.Target(kind: .artist, id: id, title: a.name, by: nil))
+    }
+
+    private func loadPlays() {
+        plays = nil
+        guard let t = player.current, let cid = t.catalogId, let albumId = t.albumId, !albumId.isEmpty else { return }
+        let api = env.spotify
+        Task {
+            let album = try? await api.album(albumId)
+            let n = album?.tracks.first { $0.id == cid }?.playCount
+            await MainActor.run { if player.current?.id == t.id { plays = n } }
+        }
     }
 
     // MARK: - Название и кнопки справа
 
     private var titleRow: some View {
-        HStack(spacing: tiny ? 6 : 10) {
+        HStack(spacing: tiny ? 6 : 8) {
             VStack(alignment: .leading, spacing: tiny ? 2 : 4) {
+                // Тап по названию — альбом, по исполнителю — его страница (как на Android); долгое нажатие — копировать.
                 Text(player.current?.title ?? "")
                     .font((tiny ? Font.headline : Font.title3).weight(.bold))
-                    .lineLimit(1)
+                    .lineLimit(1).minimumScaleFactor(0.75)
+                    .onTapGesture { openAlbum() }
                     .onLongPressGesture { copy(player.current?.title) }
                 Text(player.current?.artistNames ?? "")
                     .font(tiny ? .subheadline : .body)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+                    .onTapGesture { openArtist() }
                     .onLongPressGesture { copy(player.current?.artistNames) }
             }
             Spacer(minLength: 0)
@@ -380,5 +463,23 @@ struct SleepTimerDialog: View {
             .padding(.horizontal, 32)
         }
         .onAppear { minutes = Double(env.prefs.settings.get(PK.sleepTimerDefault) ?? 30) }
+    }
+}
+
+
+/// Обложка во весь экран: щипок — приближение, тап — закрыть.
+struct CoverViewer: View {
+    let url: String?
+    @Environment(\.presentationMode) private var presentation
+    @State private var scale: CGFloat = 1
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            ArtworkView(url: url, size: UIMetrics.width, cornerRadius: 0)
+                .scaleEffect(scale)
+                .gesture(MagnificationGesture().onChanged { scale = max(1, min(4, $0)) }.onEnded { _ in withAnimation { scale = 1 } })
+        }
+        .onTapGesture { presentation.wrappedValue.dismiss() }
     }
 }

@@ -180,3 +180,4 @@
 "ios_link_not_recognized" = "Link not recognized";
 "ios_import_where" = "Playlists appear in Library → Playlists.";
 "ios_soundcloud_import_desc" = "A profile’s likes and playlists by link";
+"ios_spotify_plays" = "%@ plays on Spotify";

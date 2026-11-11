@@ -8,6 +8,17 @@ enum SpotifyImageCDN {
     static let spotifyHost = "i.scdn.co"
     static let akamaiHost = "image-cdn-ak.spotifycdn.com"
 
+    /// Та же обложка в крупном размере (плеер, просмотр): Spotify 640 px, YouTube/Google 1200 px.
+    static func large(_ raw: String?) -> String? {
+        guard var s = raw, !s.isEmpty else { return raw }
+        for small in ["ab67616d00001e02", "ab67616d00004851"] { s = s.replacingOccurrences(of: small, with: "ab67616d0000b273") }
+        if s.contains("googleusercontent.com") || s.contains("ggpht.com"),
+           let r = s.range(of: "=w\\d+-h\\d+", options: .regularExpression) {
+            s.replaceSubrange(r, with: "=w1200-h1200")
+        }
+        return s
+    }
+
     /// Адреса в порядке попыток.
     static func candidates(_ raw: String?) -> [URL] {
         guard let raw = raw, !raw.isEmpty, let url = URL(string: raw) else { return [] }
