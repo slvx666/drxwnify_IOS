@@ -265,3 +265,57 @@ enum SharedVkQuota {
         return true
     }
 }
+
+// MARK: - Своя музыка VK (вкладка «VK» в библиотеке, LIB-024)
+
+extension VkProvider {
+    struct VkPlaylist: Identifiable, Hashable {
+        var id: String { "\(ownerId)_\(playlistId)" }
+        var playlistId: Int
+        var ownerId: Int
+        var accessKey: String?
+        var title: String
+        var subtitle: String
+        var count: Int
+        var thumb: String?
+        var isAlbum: Bool
+    }
+
+    /// Привязан свой аккаунт VK (не общий): только тогда есть своя музыка.
+    var hasOwnAccount: Bool { !(settings.get(PK.vkAccessToken) ?? "").isEmpty }
+    private var ownerId: String { settings.get(PK.vkUserId) ?? "" }
+
+    static func track(_ a: Audio) -> Track {
+        Track(id: "vk:" + a.fullId, catalogId: nil, title: a.title,
+              artists: a.artist.components(separatedBy: ", ").filter { !$0.isEmpty }.map { Track.Artist(id: nil, name: $0) },
+              albumId: nil, albumName: nil, durationMs: a.durationSec * 1000, artworkUrl: a.thumb)
+    }
+
+    func myTracks(offset: Int = 0, count: Int = 200) async throws -> [Track] {
+        var p = ["count": String(count), "offset": String(offset)]
+        if !ownerId.isEmpty { p["owner_id"] = ownerId }
+        let root = try await throttled("audio.get", p)
+        return (root.obj("response")?.objects("items") ?? []).compactMap(parse).map(Self.track)
+    }
+
+    func myPlaylists() async throws -> [VkPlaylist] {
+        var p = ["count": "100", "offset": "0"]
+        if !ownerId.isEmpty { p["owner_id"] = ownerId }
+        let root = try await throttled("audio.getPlaylists", p)
+        return (root.obj("response")?.objects("items") ?? []).compactMap { o -> VkPlaylist? in
+            guard let id = o.int("id"), let owner = o.int("owner_id") else { return nil }
+            let artists = o.objects("main_artists").compactMap { $0.str("name") }.joined(separator: ", ")
+            let thumb = o.obj("photo")?.str("photo_300") ?? o.objects("thumbs").first?.str("photo_300")
+            let isAlbum = (o.int("type") ?? 0) == 1 || !(o.str("album_type") ?? "").isEmpty && o.str("album_type") != "playlist"
+            return VkPlaylist(playlistId: id, ownerId: owner, accessKey: o.str("access_key"), title: o.str("title") ?? "",
+                              subtitle: artists, count: o.int("count") ?? 0, thumb: thumb, isAlbum: isAlbum)
+        }
+    }
+
+    func playlistTracks(_ pl: VkPlaylist) async throws -> [Track] {
+        var p = ["owner_id": String(pl.ownerId), "playlist_id": String(pl.playlistId), "count": "500"]
+        if let k = pl.accessKey, !k.isEmpty { p["access_key"] = k }
+        let root = try await throttled("audio.get", p)
+        return (root.obj("response")?.objects("items") ?? []).compactMap(parse).map(Self.track)
+    }
+}

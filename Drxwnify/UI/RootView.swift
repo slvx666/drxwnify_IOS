@@ -211,10 +211,30 @@ struct TabRootSignal: ViewModifier {
     @EnvironmentObject private var env: AppEnvironment
 
     func body(content: Content) -> some View {
-        content.background(ChromeSignal(change: { delta in
-            if delta > 0 { env.rootVisible.insert(name) } else { env.rootVisible.remove(name) }
-        }))
+        content
+            .background(ChromeSignal(change: { delta in
+                if delta > 0 { env.rootVisible.insert(name) } else { env.rootVisible.remove(name) }
+            }))
+            .background(BarsOnSwipe())
     }
+}
+
+/// Верхняя панель (история, «Вместе», интеграции, настройки) уходит при прокрутке вниз и возвращается
+/// при прокрутке вверх, как на Android; только на корне вкладки — на вложенных экранах шапка стоит.
+private struct BarsOnSwipe: UIViewControllerRepresentable {
+    final class Controller: UIViewController {
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            navigationController?.hidesBarsOnSwipe = true
+        }
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            navigationController?.hidesBarsOnSwipe = false
+            navigationController?.setNavigationBarHidden(false, animated: true)
+        }
+    }
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) {}
 }
 
 private struct ChromeSignal: UIViewControllerRepresentable {

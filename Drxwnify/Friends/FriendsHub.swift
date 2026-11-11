@@ -357,6 +357,11 @@ final class FriendsHub: ObservableObject {
     }
 
     func isVerified(_ pubkey: String) -> Bool { verified.contains(pubkey) }
+    /// Меня отметил разработчик (красная метка) — или я сам разработчик: видна вкладка «drxwnslvt's».
+    var selfVerified: Bool {
+        guard let me = profile else { return false }
+        return me.isDeveloper || store.string("verifiedFor") == me.pubkey
+    }
 
     private func saveFriends() {
         store.setString(JSON.string(friends.map { ["p": $0.pubkey, "n": $0.name, "t": $0.addedAt] as [String: Any] }), for: "friends")

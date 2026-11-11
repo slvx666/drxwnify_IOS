@@ -16,7 +16,7 @@ private struct SpotifyLibraryContent: View {
     @ObservedObject var session: SpotifyTokenManager.State
 
     private enum Filter: String, CaseIterable, Identifiable {
-        case all, songs, playlists, albums, artists
+        case all, songs, playlists, albums, artists, reviews, vk
         var id: String { rawValue }
 
         var title: String {
@@ -26,6 +26,8 @@ private struct SpotifyLibraryContent: View {
             case .playlists: return L("filter_playlists")
             case .albums: return L("filter_albums")
             case .artists: return L("filter_artists")
+            case .reviews: return "drxwnslvt's"
+            case .vk: return "VK"
             }
         }
     }
@@ -47,6 +49,7 @@ private struct SpotifyLibraryContent: View {
     @AppStorage("spotify_library_grid") private var grid = false
     /// Порядок: недавние (как в аккаунте), дата добавления, по алфавиту, автор.
     @AppStorage("library_sort") private var sortRaw = "RECENTS"
+    @AppStorage("library_sort_reversed") private var reversed = false
     @ObservedObject private var pins = LibraryPins.shared
 
     private enum Sort: String, CaseIterable {
@@ -162,7 +165,7 @@ private struct SpotifyLibraryContent: View {
     private var rows: [LibRow] {
         var out: [(Int, Int, LibRow)] = []
         for (i, e) in entries.enumerated() {
-            let r = e.kind == .likedSongs ? -1 : (pins.index(LibraryPins.key(e)) ?? 200_000)
+            let r = e.kind == .likedSongs ? -1 : (pins.index(LibraryPins.key(e)) ?? (e.pinned ? 50_000 : 200_000))
             out.append((r, i, .entry(e)))
         }
         if filter == .all || filter == .playlists {
@@ -222,7 +225,7 @@ private struct SpotifyLibraryContent: View {
         let filtered: [SpotifyLibraryEntry]
         switch filter {
         case .all: filtered = all
-        case .songs: filtered = []
+        case .songs, .reviews, .vk: filtered = []
         case .playlists: filtered = all.filter { $0.kind == .playlist || $0.kind == .folder || $0.kind == .likedSongs }
         case .albums: filtered = all.filter { $0.kind == .album }
         case .artists: filtered = all.filter { $0.kind == .artist }
@@ -246,9 +249,13 @@ private struct SpotifyLibraryContent: View {
                 return c != .orderedSame ? c == .orderedAscending : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
         }
-        // «Любимые треки» всегда первыми (LIB-011), затем закрепления в порядке закрепления.
-        func rank(_ e: SpotifyLibraryEntry) -> Int { e.kind == .likedSongs ? -1 : (pins.index(LibraryPins.key(e)) ?? Int.max) }
-        return sorted.enumerated().sorted { a, b in
+        // «Любимые треки» всегда первыми (LIB-011), затем свои закрепления, затем закреплённые в аккаунте.
+        func rank(_ e: SpotifyLibraryEntry) -> Int {
+            if e.kind == .likedSongs { return -1 }
+            if let i = pins.index(LibraryPins.key(e)) { return i }
+            return e.pinned ? 50_000 : Int.max
+        }
+        return (reversed ? sorted.reversed() : sorted).enumerated().sorted { a, b in
             let ra = rank(a.element), rb = rank(b.element)
             return ra != rb ? ra < rb : a.offset < b.offset
         }.map { $0.element }
@@ -257,11 +264,13 @@ private struct SpotifyLibraryContent: View {
     private var list: some View {
         List {
             chips
+                .background(NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }.opacity(0))
                 .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
                 .listRowBackground(Color.clear)
-            toolsRow
-                .background(NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }.opacity(0))
-                .listRowBackground(Color.clear)
+            if filter != .reviews && filter != .vk {
+                toolsRow
+                    .listRowBackground(Color.clear)
+            }
             if searching {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundColor(.secondary)
@@ -273,6 +282,11 @@ private struct SpotifyLibraryContent: View {
                 .listRowBackground(Color.clear)
             }
 
+            if filter == .reviews {
+                ReviewsSection()
+            } else if filter == .vk {
+                VkLibrarySection(vk: env.vk)
+            } else {
             if !isLinked {
                 loginRow
                 NavigationLink(destination: IntegrationsScreen(settings: settings)) {
@@ -332,26 +346,59 @@ private struct SpotifyLibraryContent: View {
             } else if loader.isLoading {
                 LoadStatusRow(isLoading: true, error: nil, retry: {})
             }
+            }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(PlainListStyle())
     }
 
-    /// Фишки-фильтры, как на Android: повторное нажатие снимает фильтр.
+    /// Фишки как на Android: без выбора — все (Альбомы, Исполнители, Локальные, Плейлисты, drxwnslvt's, VK);
+    /// с выбором — «✕» и одна выбранная, у «Плейлистов» справа «+» (создать / импортировать).
+    private var chipList: [Filter] {
+        var list: [Filter] = [.albums, .artists, .songs, .playlists]
+        if env.friends.selfVerified { list.append(.reviews) }
+        if env.vk.hasOwnAccount { list.append(.vk) }
+        return list
+    }
+
+    private func chipTitle(_ f: Filter) -> String { f == .songs ? L("ios_filter_local") : f.title }
+
+    private func chip(_ f: Filter, selected: Bool) -> some View {
+        Button(action: { withAnimation(.easeOut(duration: 0.2)) { filter = selected ? .all : f } }) {
+            Text(chipTitle(f))
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 16).frame(height: 36)
+                .foregroundColor(selected ? Color(.systemBackground) : .primary)
+                .background(Capsule().fill(selected ? Color.accentColor : Color.secondary.opacity(0.22)))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach([Filter.playlists, .albums, .artists, .songs]) { f in
-                    Button(action: { filter = filter == f ? .all : f }) {
-                        Text(f == .songs ? L("ios_filter_local") : f.title)
-                            .font(.subheadline.weight(.medium))
-                            .padding(.horizontal, 16).frame(height: 36)
-                            .foregroundColor(filter == f ? Color(.systemBackground) : .primary)
-                            .background(Capsule().fill(filter == f ? Color.accentColor : Color.secondary.opacity(0.22)))
+                if filter == .all {
+                    ForEach(chipList) { chip($0, selected: false) }
+                } else {
+                    Button(action: { withAnimation(.easeOut(duration: 0.2)) { filter = .all } }) {
+                        Image(systemName: "xmark").font(.system(size: 14, weight: .semibold))
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(Color.secondary.opacity(0.22)))
                     }
                     .buttonStyle(PlainButtonStyle())
+                    chip(filter, selected: true)
+                    if filter == .playlists {
+                        Menu {
+                            Button(action: { creating = true }) { Label(L("create_playlist"), systemImage: "plus") }
+                            Button(action: { importing = true }) { Label(L("import_playlist"), systemImage: "square.and.arrow.down.on.square") }
+                        } label: {
+                            Image(systemName: "plus").font(.system(size: 18, weight: .semibold))
+                                .frame(width: 36, height: 36)
+                        }
+                    }
                 }
             }
+            .foregroundColor(.primary)
             .padding(.horizontal, 16)
         }
     }
@@ -380,17 +427,14 @@ private struct SpotifyLibraryContent: View {
                         if s == sort { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
                     }
                 }
-                Divider()
-                Button(action: { creating = true }) { Label(L("create_playlist"), systemImage: "plus") }
-                Button(action: { importing = true }) { Label(L("import_playlist"), systemImage: "square.and.arrow.down.on.square") }
-                Button(action: { reload(force: true) }) { Label(L("refetch"), systemImage: "arrow.clockwise") }
             } label: {
-                HStack(spacing: 4) {
-                    Text(sort.title).font(.subheadline.weight(.medium))
-                    Text("·").foregroundColor(.secondary)
-                    Image(systemName: "arrow.down").font(.caption.weight(.semibold))
-                }
+                Text(sort.title).font(.subheadline.weight(.medium))
             }
+            // Стрелка — обратный порядок, как на Android.
+            Button(action: { reversed.toggle() }) {
+                Image(systemName: reversed ? "arrow.up" : "arrow.down").font(.caption.weight(.semibold))
+            }
+            .buttonStyle(BorderlessButtonStyle())
             Spacer()
             Button(action: { withAnimation { searching.toggle(); if !searching { query = "" } } }) { Image(systemName: "magnifyingglass") }
                 .buttonStyle(BorderlessButtonStyle())
