@@ -89,13 +89,21 @@ struct AppearanceSettingsScreen: View {
                     }
                 }
             }
-            Section(header: Text(L("theme"))) {
-                HStack {
-                    Text(L("theme"))
-                    Spacer()
-                    Text(L("ios_theme_dark")).foregroundColor(.secondary)
+            Section(header: Text(L("app_theme_title"))) {
+                ForEach(AppTheme.allCases) { theme in
+                    Button(action: { env.setTheme(theme) }) {
+                        HStack(spacing: 12) {
+                            Circle().fill(theme.accent ?? Color.accentColor).frame(width: 22, height: 22)
+                                .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(L(theme.titleKey)).foregroundColor(.primary)
+                                Text(L(theme.descriptionKey)).font(.caption).foregroundColor(.secondary).lineLimit(3)
+                            }
+                            Spacer()
+                            if AppTheme.current == theme { Image(systemName: "checkmark").foregroundColor(.accentColor) }
+                        }
+                    }
                 }
-                Text(L("ios_themes_later")).font(.caption).foregroundColor(.secondary)
             }
         }
         .listStyle(InsetGroupedListStyle())

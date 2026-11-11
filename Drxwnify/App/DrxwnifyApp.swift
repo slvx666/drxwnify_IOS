@@ -11,6 +11,7 @@ struct DrxwnifyApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .modifier(ThemedRoot(theme: AppTheme.current))
                 .id(env.languageVersion)
                 .environmentObject(env)
                 .environmentObject(env.player)

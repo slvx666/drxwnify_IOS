@@ -56,6 +56,8 @@ final class AppEnvironment: ObservableObject {
         lyrics.settings = prefs.settings
         // Язык из настроек (в том числе из копии с Android) — до первого экрана.
         UserDefaults.standard.set(prefs.settings.get(PK.appLanguage) ?? AppLanguage.systemDefault, forKey: "appLanguage")
+        UserDefaults.standard.set(prefs.settings.get(PK.appThemePreset) ?? AppTheme.standard.rawValue, forKey: "appThemePreset")
+        AppTheme.current.applyAppearance()
         friends = FriendsHub(prefs: prefs, database: database)
         chats = ChatHub(friends: friends, prefs: prefs)
         downloads = DownloadManager(engine: audio, database: database)
@@ -81,6 +83,14 @@ final class AppEnvironment: ObservableObject {
 
     /// Меняется при смене языка: корень перерисовывается целиком.
     @Published private(set) var languageVersion = 0
+
+    /// Тема (THEME-003): настройка `appThemePreset`, цвета UIKit, корень перерисовывается.
+    func setTheme(_ theme: AppTheme) {
+        prefs.settings.set(PK.appThemePreset, theme.rawValue)
+        UserDefaults.standard.set(theme.rawValue, forKey: "appThemePreset")
+        theme.applyAppearance()
+        languageVersion += 1
+    }
 
     func setLanguage(_ code: String) {
         prefs.settings.set(PK.appLanguage, code)
