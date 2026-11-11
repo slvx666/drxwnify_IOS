@@ -13,6 +13,7 @@ struct ChatScreen: View {
     @State private var replyTo: ChatMessage?
     @State private var editing: ChatMessage?
     @StateObject private var keyboard = KeyboardWatcher()
+    @State private var showStickers = false
 
     private static let quickReactions = ["❤️", "🔥", "😂", "👍", "😮", "😢"]
 
@@ -81,7 +82,62 @@ struct ChatScreen: View {
         reactions = chats.reactions(peer)
     }
 
-    private func bubble(_ m: ChatMessage) -> some View {
+    @ViewBuilder private func bubble(_ m: ChatMessage) -> some View {
+        if m.card == nil, m.replyTo == nil, let ids = StickerStore.stickerOnly(m.text) {
+            stickerBubble(m, ids: ids)
+        } else {
+            textBubble(m)
+        }
+    }
+
+    /// Только стикеры: крупно, без пузыря (как на Android).
+    private func stickerBubble(_ m: ChatMessage, ids: [String]) -> some View {
+        HStack {
+            if m.mine { Spacer(minLength: 50) }
+            VStack(alignment: m.mine ? .trailing : .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    ForEach(Array(ids.enumerated()), id: \.offset) { _, id in
+                        StickerImage(id: id).stickerFrame(id, height: ids.count == 1 ? 130 : 96)
+                    }
+                }
+                HStack(spacing: 4) {
+                    Text(time(m.ts)).font(.caption2)
+                    if m.mine { stateIcon(m) }
+                }
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 8).padding(.vertical, 2)
+                .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                if let list = reactions[m.id], !list.isEmpty {
+                    Text(list.flatMap { $0.keyList }.joined(separator: " ")).font(.caption)
+                        .padding(.horizontal, 6).padding(.vertical, 2).background(Capsule().fill(Color.secondary.opacity(0.2)))
+                }
+            }
+            .contentShape(Rectangle())
+            .contextMenu { menu(m) }
+            .onTapGesture(count: 2) { chats.react(m, key: "❤️") }
+            if !m.mine { Spacer(minLength: 50) }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    /// Текст сообщения со стикерами на своих местах.
+    @ViewBuilder private func messageText(_ text: String) -> some View {
+        let parts = StickerStore.parts(text)
+        if parts.count == 1, case .text(let t) = parts[0] {
+            Text(t).font(.body)
+        } else {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(parts.enumerated()), id: \.offset) { _, p in
+                    switch p {
+                    case .text(let t): Text(t).font(.body)
+                    case .image(let id): StickerImage(id: id).stickerFrame(id, height: 48)
+                    }
+                }
+            }
+        }
+    }
+
+    private func textBubble(_ m: ChatMessage) -> some View {
         HStack {
             if m.mine { Spacer(minLength: 50) }
             VStack(alignment: m.mine ? .trailing : .leading, spacing: 4) {
@@ -92,7 +148,7 @@ struct ChatScreen: View {
                         .overlay(Rectangle().fill(Color.accentColor).frame(width: 2), alignment: .leading)
                 }
                 if let card = m.card { musicCard(card) }
-                if !m.text.isEmpty { Text(Stickers.plain(m.text)).font(.body) }
+                if !m.text.isEmpty { messageText(m.text) }
                 HStack(spacing: 4) {
                     if m.edited { Text(L("ios_edited")).font(.caption2) }
                     Text(time(m.ts)).font(.caption2)
@@ -159,7 +215,10 @@ struct ChatScreen: View {
 
     private func open(_ c: ChatMusic) {
         if let t = c.track {
-            player.play([t], title: name)
+            // Как на Android 2.2.5: дальше играют следующие треки чата.
+            let all = messages.compactMap { $0.card?.track }
+            let start = all.firstIndex { $0.id == t.id } ?? 0
+            player.play(all.isEmpty ? [t] : all, startIndex: all.isEmpty ? 0 : start, title: name)
         } else if !c.isYouTube {
             env.linkTarget = AppLinks.Target(kind: c.kind, id: c.id, title: c.title, by: c.by)
         }
@@ -176,7 +235,23 @@ struct ChatScreen: View {
                 }
                 .padding(.horizontal, 12)
             }
+            if !suggestions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(suggestions, id: \.0.id) { s, n in
+                            StickerImage(id: s.id).stickerFrame(s.id, height: 52)
+                                .onTapGesture { useSuggestion(s, replacing: n) }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                }
+                .frame(height: 58)
+            }
             HStack(spacing: 8) {
+                Button(action: { showStickers = true }) {
+                    Image(systemName: "face.smiling").font(.system(size: 24)).frame(width: 34, height: 38)
+                }
+                .disabled(!chats.canWrite(peer))
                 TextField(chats.canWrite(peer) ? L("ios_message") : L("ios_chat_readonly"), text: $text)
                     .padding(.horizontal, 12).frame(height: 38)
                     .background(Capsule().fill(Color.secondary.opacity(0.18)))
@@ -195,6 +270,30 @@ struct ChatScreen: View {
         }
         .padding(.vertical, 8)
         .background(BlurView(style: .systemChromeMaterial).ignoresSafeArea(edges: .bottom))
+        .sheet(isPresented: $showStickers) {
+            StickerPanel { s in sendSticker(s) }
+        }
+    }
+
+    private var suggestions: [(StickerStore.Sticker, Int)] {
+        editing == nil && !text.isEmpty ? StickerStore.suggest(text) : []
+    }
+
+    /// Стикер из панели уходит сразу отдельным сообщением.
+    private func sendSticker(_ s: StickerStore.Sticker) {
+        chats.send(peer, text: StickerStore.token(s), replyTo: replyTo?.id)
+        replyTo = nil
+    }
+
+    /// Подсказка заменяет набранный код; если кроме кода ничего нет — стикер уходит сразу.
+    private func useSuggestion(_ s: StickerStore.Sticker, replacing n: Int) {
+        let rest = String(text.dropLast(n))
+        if rest.trimmingCharacters(in: .whitespaces).isEmpty {
+            text = ""
+            sendSticker(s)
+        } else {
+            text = rest + StickerStore.token(s)
+        }
     }
 
     private func send() {

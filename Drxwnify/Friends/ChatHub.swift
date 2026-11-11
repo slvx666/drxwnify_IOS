@@ -696,14 +696,19 @@ enum Stickers {
     static let start: Character = "\u{E000}"
     static let end: Character = "\u{E001}"
 
-    /// Текст для уведомлений и превью: стикер становится «[стикер]».
+    /// Текст для уведомлений и превью: стикер становится своим кодом (как `Stickers.plain` на Android).
     static func plain(_ text: String) -> String {
         var out = ""
+        var id = ""
         var inSticker = false
         for c in text {
-            if c == start { inSticker = true; out += L("ios_sticker"); continue }
-            if c == end { inSticker = false; continue }
-            if !inSticker { out.append(c) }
+            if c == start { inSticker = true; id = ""; continue }
+            if c == end {
+                inSticker = false
+                out += StickerStore.byId[id]?.code ?? L("ios_sticker")
+                continue
+            }
+            if inSticker { id.append(c) } else { out.append(c) }
         }
         return out
     }
