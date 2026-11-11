@@ -96,6 +96,7 @@ struct SpotifyAlbumScreen: View {
                     detail: [album.typeTitle, album.fullDate, album.totalTracks > 0 ? LPlural("n_song", album.totalTracks) : nil]
                         .compactMap { $0 }.joined(separator: " · ")
                 )
+                GenreChips(artist: album.artists.first?.name ?? "", album: album.name)
                 ForEach(album.artists.filter { $0.id != nil }, id: \.self) { artist in
                     NavigationLink(destination: SpotifyArtistScreen(artistId: artist.id ?? "", name: artist.name)) {
                         Label(artist.name, systemImage: "person.fill")
@@ -160,6 +161,7 @@ struct SpotifyArtistScreen: View {
                     },
                     circle: true
                 )
+                GenreChips(artist: page.artist.name)
                 if !page.top.isEmpty {
                     PlayShuffleRow(tracks: page.top, queueTitle: page.artist.name)
                     Section(header: Text(L("artist_top_tracks"))) {

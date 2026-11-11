@@ -74,3 +74,9 @@
   `project.yml` подключает его как `configFiles`, значения попадают в Info.plist (`LastFMApiKey`, `LastFMSecret`). Если файла нет,
   `remote-build.sh` создаёт пустой — приложение собирается без Last.fm и пишет об этом в настройках.
 - Вход — `auth.getMobileSession` (логин и пароль, как на Android), пароль не хранится, только ключ сессии в `lastfmSession`.
+
+## Жанры (0.9.5)
+
+- Last.fm в iOS нужен прежде всего для жанров (слова пользователя, 11.11.2026); вход в аккаунт оставлен как возможность, в Android ключ не вписывается.
+- `Support/Genres.swift` — перенос `portrait/Genres.kt` один к одному: `artist.gettoptags` (≥ 8), иначе MusicBrainz (score ≥ 90, раз в секунду),
+  `album.gettoptags` (≥ 5) для альбома, фильтр не-жанров, синонимы, написание. Ключ — iOS-ключ из `secrets.xcconfig`, без него — публичный ключ из Android.
