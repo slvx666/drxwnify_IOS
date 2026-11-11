@@ -145,6 +145,8 @@ final class AppEnvironment: ObservableObject {
         friends.load()
         chats.refresh()
         likes.reload()
+        LibraryPins.shared.reload()
+        BlockedTracks.shared.reload()
     }
 
     /// Открывает базу; повреждённый файл откладывает в сторону и создаёт новый.

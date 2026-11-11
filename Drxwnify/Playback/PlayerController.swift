@@ -99,6 +99,8 @@ final class PlayerController: NSObject, ObservableObject {
         case album
         /// Топ артиста: его другие песни, потом похожие; `shuffleAll` — «Перемешать» без повторов.
         case artist(String, shuffleAll: Bool)
+        /// Вся дискография артиста уже в очереди: после неё — похожие исполнители.
+        case artistDiscography(String)
         /// Свой источник продолжения («Для тебя»).
         case radio(RadioSource)
     }
@@ -123,6 +125,7 @@ final class PlayerController: NSObject, ObservableObject {
         case .list: radio = nil
         case .album: radio = catalog.map { ListRadio(original: tracks, api: $0) }
         case .artist(let id, let all): radio = catalog.map { ArtistRadio(artistId: id, shuffleAll: all, api: $0) }
+        case .artistDiscography(let id): radio = catalog.map { ArtistRadio(artistId: id, shuffleAll: true, api: $0, discographyQueued: true) }
         case .radio(let source):
             radio = source
             RecommendedTracks.shared.mark(tracks)

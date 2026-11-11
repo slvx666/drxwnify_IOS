@@ -54,6 +54,7 @@ private struct LocalTrackListContent: View {
         .listStyle(PlainListStyle())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear(perform: reload)
         .onChange(of: library.revision) { _ in reload() }
         .onChange(of: downloads.revision) { _ in if kind == .downloaded { reload() } }
@@ -200,6 +201,7 @@ private struct LocalPlaylistContent: View {
         .environment(\.editMode, .constant(editing ? .active : .inactive))
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .navigationBarItems(trailing: Menu {
             if playlist.isEditable {
                 Button(action: { editing.toggle() }) {
@@ -297,6 +299,7 @@ private struct HistoryContent: View {
         .listStyle(PlainListStyle())
         .navigationTitle(L("history"))
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear(perform: reload)
         .onChange(of: library.revision) { _ in reload() }
     }
@@ -333,6 +336,7 @@ struct LocalArtistScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(artist.name)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear { tracks = env.library.artistSongs(artist.id) }
     }
 }

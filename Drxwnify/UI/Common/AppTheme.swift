@@ -38,6 +38,8 @@ enum AppTheme: String, CaseIterable, Identifiable {
     }
 
     var accent: Color? { palette.map { Color(UIColor(hex: $0.accent)) } }
+    /// Фон строк простых списков: на iOS 16+ ячейки иначе системно-чёрные при цветном фоне темы.
+    static var rowBackground: Color { current.palette.map { Color(UIColor(hex: $0.background)) } ?? Color(.systemBackground) }
 
     /// Цвета UIKit-основы (списки, панели, навигация) — на них стоят экраны SwiftUI на iOS 14–25.
     func applyAppearance() {
@@ -102,4 +104,9 @@ struct ThemedRoot: ViewModifier {
             .font(theme.monospaced ? .system(.body, design: .monospaced) : .body)
             .background((theme.palette.map { Color(UIColor(hex: $0.background)) } ?? Color(.systemBackground)).ignoresSafeArea())
     }
+}
+
+extension View {
+    /// Строка простого списка в цвет фона темы.
+    func themedRow() -> some View { listRowBackground(AppTheme.rowBackground) }
 }

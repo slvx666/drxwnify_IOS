@@ -236,10 +236,19 @@ final class ArtistRadio: RadioSource {
     private static let releasesToScan = 6
     private static let allReleasesToScan = 40
 
-    init(artistId: String, shuffleAll: Bool, api: SpotifyAPI) {
+    /// `discographyQueued` — вся дискография уже в очереди («Перемешать»): дальше сразу похожие.
+    init(artistId: String, shuffleAll: Bool, api: SpotifyAPI, discographyQueued: Bool = false) {
         self.artistId = artistId
         self.shuffleAll = shuffleAll
         self.api = api
+        self.round = discographyQueued ? 1 : 0
+    }
+
+    /// Вся дискография артиста (альбомы и синглы, до 40 релизов) без повторов по названию, вместе с популярными.
+    static func discography(artistId: String, top: [Track], api: SpotifyAPI) async -> [Track] {
+        let more = await ArtistRadio(artistId: artistId, shuffleAll: true, api: api).moreFromArtist(allReleasesToScan)
+        var seen = Set<String>()
+        return (top + more).filter { seen.insert(titleKey($0)).inserted }
     }
 
     private static func titleKey(_ t: Track) -> String {

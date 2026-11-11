@@ -92,6 +92,7 @@ struct SpotifyArtist: Codable, Hashable, Identifiable {
     var uri: String?
     var monthlyListeners: Int?
     var followers: Int?
+    var biography: String?
 }
 
 struct SpotifyPlaylistOwner: Codable, Hashable {

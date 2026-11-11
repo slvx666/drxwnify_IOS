@@ -89,6 +89,7 @@ struct TrackRow: View {
         .buttonStyle(PlainButtonStyle())
         .modifier(BlockedLook(track: track))
         .contextMenu { TrackMenuItems(track: track) }
+        .themedRow()
     }
 }
 

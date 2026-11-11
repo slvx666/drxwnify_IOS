@@ -39,6 +39,7 @@ struct GenreScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(genre)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear { load(force: false) }
     }
 

@@ -205,10 +205,42 @@ final class LibraryStore: ObservableObject {
                     SELECT s.thumbnailUrl FROM playlist_song_map m JOIN song s ON s.id = m.songId
                     WHERE m.playlistId = ? AND s.thumbnailUrl IS NOT NULL ORDER BY m.position LIMIT 4
                     """, arguments: [id])
-                return LocalPlaylist(id: id, name: r["name"], songCount: r["n"], thumbnails: thumbs, thumbnailUrl: r["thumbnailUrl"],
+                return LocalPlaylist(id: id, name: r["name"], songCount: r["n"], thumbnails: thumbs, thumbnailUrl: Self.coverURL(r["thumbnailUrl"]),
                                      isEditable: (r["isEditable"] as Int) != 0)
             }
         }
+    }
+
+    /// Обложка своего плейлиста с Android (`content://…FileProvider/covers/<файл>`) — файл из копии в `covers/`.
+    static func coverURL(_ raw: String?) -> String? {
+        guard let raw = raw, !raw.isEmpty else { return nil }
+        if raw.hasPrefix("content://"), let name = raw.split(separator: "/").last {
+            let file = BackupManager.coversDirectory.appendingPathComponent(String(name))
+            return FileManager.default.fileExists(atPath: file.path) ? file.absoluteString : nil
+        }
+        return raw
+    }
+
+    /// Подписка на исполнителя на этом телефоне (Android: `artist.bookmarkedAt`, id `SP_<id Spotify>`).
+    func isArtistBookmarked(spotifyId: String) -> Bool {
+        read(false) { db in
+            try Bool.fetchOne(db, sql: "SELECT bookmarkedAt IS NOT NULL FROM artist WHERE spotifyId = ? OR id = ? OR id = ? LIMIT 1",
+                              arguments: [spotifyId, "SP_" + spotifyId, spotifyId]) ?? false
+        }
+    }
+
+    func setArtistBookmarked(spotifyId: String, name: String, thumbnail: String?, _ on: Bool) {
+        try? database.pool.write { db in
+            let id = "SP_" + spotifyId
+            let now = SongStore.nowMs()
+            if try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM artist WHERE id = ?", arguments: [id]) == 0 {
+                try db.execute(sql: "INSERT INTO artist (id, name, thumbnailUrl, lastUpdateTime, isLocal, isPodcastChannel, spotifyId) VALUES (?, ?, ?, ?, 0, 0, ?)",
+                               arguments: [id, name, thumbnail, now, spotifyId])
+            }
+            try db.execute(sql: "UPDATE artist SET bookmarkedAt = ? WHERE id = ? OR spotifyId = ?",
+                           arguments: [on ? now : nil, id, spotifyId])
+        }
+        changed()
     }
 
     func playlistEntries(_ playlistId: String) -> [PlaylistEntry] {

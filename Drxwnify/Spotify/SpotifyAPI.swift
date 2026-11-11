@@ -375,7 +375,32 @@ final class SpotifyAPI {
             offset += 50
             if page.items.isEmpty || offset >= page.total || offset >= 2000 { break }
         }
+        if filter == nil && folderUri == nil {
+            libraryLock.lock()
+            libraryIds = Set(all.map { $0.id })
+            libraryLoaded = true
+            libraryLock.unlock()
+        }
         return all
+    }
+
+    // Что лежит в медиатеке аккаунта (из последней загрузки) — для ♥ альбома и «Вы подписаны»:
+    // REST `me/…/contains` веб-токену часто отказывает, как и на Android.
+    private var libraryIds = Set<String>()
+    private var libraryLoaded = false
+    private let libraryLock = NSLock()
+
+    func inLibrary(_ id: String) async -> Bool {
+        libraryLock.lock(); let loaded = libraryLoaded; libraryLock.unlock()
+        if !loaded { _ = try? await myLibraryAll() }
+        libraryLock.lock(); defer { libraryLock.unlock() }
+        return libraryIds.contains(id)
+    }
+
+    func noteLibrary(_ id: String, _ inside: Bool) {
+        libraryLock.lock()
+        if inside { libraryIds.insert(id) } else { libraryIds.remove(id) }
+        libraryLock.unlock()
     }
 
     // MARK: Плейлист (fetchPlaylist)
@@ -490,6 +515,15 @@ final class SpotifyAPI {
         return union
     }
 
+    /// Описание артиста без HTML-ссылок и сущностей.
+    static func plainText(_ html: String?) -> String? {
+        guard var t = html, !t.isEmpty else { return nil }
+        t = t.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        for (k, v) in ["&amp;": "&", "&quot;": "\"", "&#39;": "'", "&lt;": "<", "&gt;": ">", "&nbsp;": " "] { t = t.replacingOccurrences(of: k, with: v) }
+        t = t.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
     func artist(_ artistId: String) async throws -> SpotifyArtist {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.artist(artistId) }
         let data = try await artistUnion(artistId)
@@ -497,7 +531,8 @@ final class SpotifyAPI {
                              images: parseImages(data.obj("visuals")?.obj("avatarImage")?.arr("sources")),
                              uri: "spotify:artist:\(artistId)",
                              monthlyListeners: data.obj("stats")?.int("monthlyListeners"),
-                             followers: data.obj("stats")?.int("followers"))
+                             followers: data.obj("stats")?.int("followers"),
+                             biography: Self.plainText(data.obj("profile")?.obj("biography")?.str("text")))
     }
 
     func artistDiscography(_ artistId: String) async throws -> SpotifyArtistDiscography {
@@ -654,22 +689,26 @@ final class SpotifyAPI {
     func setFollowingArtist(_ artistId: String, follow: Bool) async throws {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.setLiked("artist", id: artistId, liked: follow) }
         try await restWrite(follow ? "PUT" : "DELETE", "me/following?type=artist&ids=\(artistId)")
+        noteLibrary(artistId, follow)
     }
 
     func isFollowingArtist(_ artistId: String) async throws -> Bool {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.isArtistLiked(artistId) }
-        let data = try await restGet("me/following/contains?type=artist&ids=\(artistId)")
+        if await inLibrary(artistId) { return true }
+        guard let data = try? await restGet("me/following/contains?type=artist&ids=\(artistId)") else { return false }
         return ((try? JSONSerialization.jsonObject(with: data)) as? [Bool])?.first ?? false
     }
 
     func setAlbumSaved(_ albumId: String, saved: Bool) async throws {
         if YandexIds.isYandex(albumId), let y = yandex { return try await y.setLiked("album", id: albumId, liked: saved) }
         try await restWrite(saved ? "PUT" : "DELETE", "me/albums?ids=\(albumId)")
+        noteLibrary(albumId, saved)
     }
 
     func isAlbumSaved(_ albumId: String) async throws -> Bool {
         if YandexIds.isYandex(albumId), let y = yandex { return try await y.isAlbumLiked(albumId) }
-        let data = try await restGet("me/albums/contains?ids=\(albumId)")
+        if await inLibrary(albumId) { return true }
+        guard let data = try? await restGet("me/albums/contains?ids=\(albumId)") else { return false }
         return ((try? JSONSerialization.jsonObject(with: data)) as? [Bool])?.first ?? false
     }
 

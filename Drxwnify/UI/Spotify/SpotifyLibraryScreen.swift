@@ -120,22 +120,66 @@ private struct SpotifyLibraryContent: View {
                 autoRow(L("my_top"), "chart.bar.fill", .orange, nil, LocalTrackListScreen(kind: .top))
             }
         }
-        if filter == .all || filter == .playlists {
-            ForEach(localPlaylists) { p in
-                NavigationLink(destination: LocalPlaylistScreen(playlist: p)) {
-                    HStack(spacing: 12) {
-                        PlaylistCover(playlist: p, size: 48)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(p.name).lineLimit(1)
-                            Text(L("ios_playlist") + " · " + LPlural("n_song", p.songCount)).font(.caption).foregroundColor(.secondary)
+    }
+
+    private func localPlaylistRow(_ p: LocalPlaylist) -> some View {
+        NavigationLink(destination: LocalPlaylistScreen(playlist: p)) {
+            HStack(spacing: 12) {
+                PlaylistCover(playlist: p, size: 52)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 5) {
+                        if pins.pinned.contains(LibraryPins.localKey(p.id)) {
+                            Image(systemName: "pin.fill").font(.caption2).foregroundColor(.green)
                         }
+                        Text(p.name).lineLimit(1)
                     }
+                    Text(L("ios_playlist") + " · " + LPlural("n_song", p.songCount)).font(.caption).foregroundColor(.secondary)
                 }
+            }
+            .padding(.vertical, 2)
+        }
+        .contextMenu {
+            Button(action: { pins.toggle(LibraryPins.localKey(p.id)) }) {
+                Label(L(pins.pinned.contains(LibraryPins.localKey(p.id)) ? "library_unpinned" : "library_pinned"), systemImage: "pin")
+            }
+        }
+        .themedRow()
+    }
+
+    /// Строка общего списка: запись медиатеки или свой плейлист.
+    private enum LibRow: Identifiable {
+        case entry(SpotifyLibraryEntry)
+        case local(LocalPlaylist)
+        var id: String {
+            switch self {
+            case .entry(let e): return "e:" + e.id
+            case .local(let p): return "l:" + p.id
             }
         }
     }
 
+    /// Как на Android: «Любимые треки», затем закреплённое (медиатека и свои плейлисты) в порядке закрепления,
+    /// затем свои плейлисты, затем остальная медиатека в выбранном порядке.
+    private var rows: [LibRow] {
+        var out: [(Int, Int, LibRow)] = []
+        for (i, e) in entries.enumerated() {
+            let r = e.kind == .likedSongs ? -1 : (pins.index(LibraryPins.key(e)) ?? 200_000)
+            out.append((r, i, .entry(e)))
+        }
+        if filter == .all || filter == .playlists {
+            let q = query.trimmingCharacters(in: .whitespaces)
+            for (i, p) in localPlaylists.enumerated() where q.isEmpty || p.name.localizedCaseInsensitiveContains(q) {
+                out.append((pins.index(LibraryPins.localKey(p.id)) ?? 100_000, i, .local(p)))
+            }
+        }
+        return out.sorted { $0.0 != $1.0 ? $0.0 < $1.0 : $0.1 < $1.1 }.map { $0.2 }
+    }
+
     private func autoRow<D: View>(_ title: String, _ symbol: String, _ color: Color, _ detail: String?, _ destination: D) -> some View {
+        autoRowLink(title, symbol, color, detail, destination).themedRow()
+    }
+
+    private func autoRowLink<D: View>(_ title: String, _ symbol: String, _ color: Color, _ detail: String?, _ destination: D) -> some View {
         NavigationLink(destination: destination) {
             HStack(spacing: 12) {
                 Image(systemName: symbol).font(.title3).foregroundColor(.white)
@@ -203,10 +247,8 @@ private struct SpotifyLibraryContent: View {
                 return c != .orderedSame ? c == .orderedAscending : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
         }
-        // «Любимые треки» всегда первыми (LIB-011), затем свои закрепления в порядке закрепления.
-        var order: [String: Int] = [:]
-        for (i, k) in pins.pinned.enumerated() { order[k] = i }
-        func rank(_ e: SpotifyLibraryEntry) -> Int { e.kind == .likedSongs ? -1 : (order[LibraryPins.key(e)] ?? Int.max) }
+        // «Любимые треки» всегда первыми (LIB-011), затем закрепления в порядке закрепления.
+        func rank(_ e: SpotifyLibraryEntry) -> Int { e.kind == .likedSongs ? -1 : (pins.index(LibraryPins.key(e)) ?? Int.max) }
         return sorted.enumerated().sorted { a, b in
             let ra = rank(a.element), rb = rank(b.element)
             return ra != rb ? ra < rb : a.offset < b.offset
@@ -219,9 +261,8 @@ private struct SpotifyLibraryContent: View {
                 .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
                 .listRowBackground(Color.clear)
             toolsRow
+                .background(NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }.opacity(0))
                 .listRowBackground(Color.clear)
-            NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }
-                .frame(height: 0).opacity(0).listRowBackground(Color.clear)
             if searching {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundColor(.secondary)
@@ -258,6 +299,9 @@ private struct SpotifyLibraryContent: View {
                     }
                 }
             }
+            if grid && (filter == .all || filter == .playlists) {
+                ForEach(localPlaylists) { localPlaylistRow($0) }
+            }
             if grid {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 14) {
                     ForEach(entries) { entry in
@@ -270,11 +314,17 @@ private struct SpotifyLibraryContent: View {
                 }
                 .listRowBackground(Color.clear)
             } else {
-                ForEach(entries) { entry in
-                    NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
-                        SpotifyLibraryEntryRow(entry: entry, pinnedHere: pins.pinned.contains(LibraryPins.key(entry)))
+                ForEach(rows) { row in
+                    switch row {
+                    case .entry(let entry):
+                        NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
+                            SpotifyLibraryEntryRow(entry: entry, pinnedHere: pins.pinned.contains(LibraryPins.key(entry)))
+                        }
+                        .contextMenu { pinButton(entry) }
+                        .themedRow()
+                    case .local(let p):
+                        localPlaylistRow(p)
                     }
-                    .contextMenu { pinButton(entry) }
                 }
             }
 
@@ -490,6 +540,7 @@ struct SpotifyFolderScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear { load(force: false) }
     }
 

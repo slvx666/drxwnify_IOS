@@ -28,6 +28,7 @@ struct SpotifyPlaylistScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(info.value?.name ?? name)
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear { load(force: false) }
     }
 
@@ -65,6 +66,7 @@ struct SpotifyLikedSongsScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(L("liked_songs"))
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .onAppear { load(force: false) }
         .onChange(of: tracks.items.count) { _ in env.likes.markLiked(tracks.items.map { $0.track.id }) }
     }
@@ -95,21 +97,7 @@ struct SpotifyAlbumScreen: View {
                         .shadow(color: Color.black.opacity(0.4), radius: 14, y: 6)
                         .padding(.bottom, 6)
                     Text(album.name).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-                    HStack(spacing: 4) {
-                        ForEach(Array(album.artists.enumerated()), id: \.offset) { i, artist in
-                            if i > 0 { Text(",").foregroundColor(.secondary) }
-                            if let id = artist.id, !id.isEmpty {
-                                NavigationLink(destination: SpotifyArtistScreen(artistId: id, name: artist.name)) {
-                                    Text(artist.name).foregroundColor(.secondary)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            } else {
-                                Text(artist.name).foregroundColor(.secondary)
-                            }
-                        }
-                    }
-                    .font(.subheadline)
-                    .lineLimit(1)
+                    AlbumArtistsLine(artists: album.artists)
                     Text([album.typeTitle, album.fullDate, album.totalTracks > 0 ? LPlural("n_song", album.totalTracks) : nil]
                             .compactMap { $0 }.joined(separator: " · "))
                         .font(.caption).foregroundColor(.secondary)
@@ -136,8 +124,11 @@ struct SpotifyAlbumScreen: View {
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(PlainListStyle())
-        .navigationTitle(loader.value?.name ?? name)
+        .environment(\.defaultMinListRowHeight, 0)
+        // Как просил пользователь: на iPhone название над обложкой не дублируется.
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .navigationBarItems(trailing: HStack(spacing: 16) {
             Button(action: {
                 if let a = loader.value { env.trackSelection = TrackBatch(tracks: a.tracks.map { Track($0, album: a.simple) }) }
@@ -174,6 +165,8 @@ struct SpotifyArtistScreen: View {
     @State private var following: Bool?
     @State private var showAllTop = false
     @State private var radioBusy = false
+    @State private var shuffleBusy = false
+    @State private var bioExpanded = false
 
     private var settings: TypedStore { env.prefs.settings }
 
@@ -225,8 +218,10 @@ struct SpotifyArtistScreen: View {
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(PlainListStyle())
-        .navigationTitle(loader.value?.artist.name ?? name)
+        .environment(\.defaultMinListRowHeight, 0)
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .hidesTabChrome()
         .navigationBarItems(trailing:
             ShareLinkButton(text: AppLinks.shareText(.artist, id: artistId, title: loader.value?.artist.name ?? name, by: nil)))
         .onAppear {
@@ -265,14 +260,17 @@ struct SpotifyArtistScreen: View {
             }
             .buttonStyle(PlainButtonStyle())
             .disabled(tracks.isEmpty || radioBusy)
-            circleButton("shuffle", filled: false) {
-                player.play(tracks, title: page.artist.name, shuffled: true, origin: .artist(page.artist.id, shuffleAll: true))
+            // «Перемешать» — вся дискография без повторов, после неё — похожие (Android 2.2.5).
+            Button(action: { shuffleAll(page, tracks) }) {
+                Group {
+                    if shuffleBusy { ProgressView() } else { Image(systemName: "shuffle").font(.system(size: 18, weight: .semibold)) }
+                }
+                .foregroundColor(Color(.systemBackground))
+                .frame(width: 46, height: 46)
+                .background(Circle().fill(Color.accentColor))
             }
-            .disabled(tracks.isEmpty)
-            circleButton("play.fill", filled: true) {
-                player.play(tracks, title: page.artist.name, shuffled: false, origin: .artist(page.artist.id, shuffleAll: false))
-            }
-            .disabled(tracks.isEmpty)
+            .buttonStyle(PlainButtonStyle())
+            .disabled(tracks.isEmpty || shuffleBusy)
         }
         .foregroundColor(.primary)
         .listRowBackground(Color.clear)
@@ -289,19 +287,43 @@ struct SpotifyArtistScreen: View {
         .buttonStyle(PlainButtonStyle())
     }
 
+    /// «О исполнителе»: подписчики, слушатели за месяц, описание с «Показать больше» — как на Android.
     @ViewBuilder private func stats(_ page: Page) -> some View {
         let followers = (settings.get(PK.showArtistSubscriberCount) ?? true) ? page.artist.followers : nil
         let monthly = (settings.get(PK.showMonthlyListeners) ?? true) ? page.artist.monthlyListeners : nil
-        if followers != nil || monthly != nil {
-            VStack(alignment: .leading, spacing: 2) {
-                if let f = followers { Text(L("ios_artist_followers", Self.compact(f))) }
+        let bio = (settings.get(PK.showArtistDescription) ?? true) ? page.artist.biography : nil
+        if followers != nil || monthly != nil || bio != nil {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L("about_artist")).font(.headline)
+                if let f = followers { Text(L("ios_artist_followers", Self.compact(f))).font(.subheadline).foregroundColor(.secondary) }
                 if let m = monthly {
                     Text(L("spotify_monthly_listeners", NumberFormatter.localizedString(from: NSNumber(value: m), number: .decimal)))
+                        .font(.subheadline).foregroundColor(.secondary)
+                }
+                if let b = bio {
+                    Text(b).font(.subheadline).foregroundColor(.secondary)
+                        .lineLimit(bioExpanded ? nil : 3)
+                        .padding(.top, 4)
+                    Button(L(bioExpanded ? "show_less" : "show_more")) { withAnimation { bioExpanded.toggle() } }
+                        .font(.caption.weight(.semibold)).foregroundColor(.accentColor)
+                        .buttonStyle(PlainButtonStyle())
                 }
             }
-            .font(.subheadline).foregroundColor(.secondary)
+            .padding(.top, 8)
             .listRowBackground(Color.clear)
             .listRowSeparatorHiddenCompat()
+        }
+    }
+
+    private func shuffleAll(_ page: Page, _ top: [Track]) {
+        shuffleBusy = true
+        let api = env.spotify, id = page.artist.id, name = page.artist.name
+        Task {
+            let all = await ArtistRadio.discography(artistId: id, top: top, api: api)
+            await MainActor.run {
+                shuffleBusy = false
+                player.play(all.isEmpty ? top : all, title: name, shuffled: true, origin: .artistDiscography(id))
+            }
         }
     }
 
@@ -323,9 +345,11 @@ struct SpotifyArtistScreen: View {
         }
     }
 
+    /// Подписка — как на Android: на этом телефоне (подписки из копии) или в медиатеке аккаунта.
     private func readFollowing() {
         guard following == nil else { return }
-        let api = env.spotify, id = artistId
+        let api = env.spotify, id = artistId, lib = env.library
+        if lib.isArtistBookmarked(spotifyId: id) { following = true; return }
         Task {
             let on = (try? await api.isFollowingArtist(id)) ?? false
             await MainActor.run { following = on }
@@ -337,9 +361,10 @@ struct SpotifyArtistScreen: View {
         following = !on
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         let api = env.spotify, id = artistId
-        Task {
-            do { try await api.setFollowingArtist(id, follow: !on) } catch { await MainActor.run { following = on } }
-        }
+        let page = loader.value
+        env.library.setArtistBookmarked(spotifyId: id, name: page?.artist.name ?? name,
+                                        thumbnail: page?.artist.images.best(minWidth: 300), !on)
+        Task { try? await api.setFollowingArtist(id, follow: !on) }
     }
 
     /// «Радио»: топ артиста, затем похожие исполнители (как радио артиста на Android).
@@ -414,6 +439,8 @@ struct AlbumButtonsRow: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var downloads: DownloadManager
     @State private var saved: Bool?
+    @State private var confirmRemove = false
+    @State private var shareFiles: [URL]?
 
     private var done: Int { tracks.filter { downloads.states[$0.id] == .done }.count }
     private var active: Int {
@@ -435,17 +462,37 @@ struct AlbumButtonsRow: View {
                     .background(Capsule().fill(Color.accentColor))
             }
             .buttonStyle(PlainButtonStyle())
-            Button(action: downloadTapped) {
-                HStack(spacing: 6) {
-                    Image(systemName: done == tracks.count && !tracks.isEmpty ? "checkmark.circle" : "arrow.down.to.line")
-                    Text(active > 0 ? "\(done)/\(tracks.count)" : L(done == tracks.count && !tracks.isEmpty ? "ios_downloaded" : "action_download"))
-                        .lineLimit(1).minimumScaleFactor(0.8)
+            if done == tracks.count && !tracks.isEmpty && active == 0 {
+                // Всё скачано — как на Android: «удалить | отправить файлами (N)».
+                HStack(spacing: 0) {
+                    Button(action: { confirmRemove = true }) {
+                        Image(systemName: "trash").frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    Rectangle().fill(Color.secondary.opacity(0.5)).frame(width: 1, height: 24)
+                    Button(action: { shareFiles = downloads.exportCopies(tracks) }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrowshape.turn.up.right")
+                            Text("\(tracks.count)")
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                    }
                 }
                 .font(.subheadline.weight(.medium))
-                .frame(maxWidth: .infinity, minHeight: 44)
                 .overlay(Capsule().stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                .buttonStyle(PlainButtonStyle())
+            } else {
+                Button(action: downloadTapped) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.down.to.line")
+                        Text(active > 0 ? "\(done)/\(tracks.count)" : L("action_download"))
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .overlay(Capsule().stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                }
+                .buttonStyle(PlainButtonStyle())
             }
-            .buttonStyle(PlainButtonStyle())
             Button(action: toggleSaved) {
                 Image(systemName: saved == true ? "heart.fill" : "heart").font(.system(size: 22))
                     .foregroundColor(saved == true ? .accentColor : .primary)
@@ -459,6 +506,14 @@ struct AlbumButtonsRow: View {
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .onAppear(perform: readSaved)
+        .sheet(isPresented: Binding(get: { shareFiles != nil }, set: { if !$0 { shareFiles = nil } })) {
+            ShareSheet(items: shareFiles ?? [])
+        }
+        .alert(isPresented: $confirmRemove) {
+            Alert(title: Text(L("remove_download")),
+                  primaryButton: .destructive(Text(L("ios_delete"))) { downloads.remove(tracks.map { $0.id }) },
+                  secondaryButton: .cancel())
+        }
     }
 
     private func downloadTapped() {
@@ -484,5 +539,26 @@ struct AlbumButtonsRow: View {
         Task {
             do { try await api.setAlbumSaved(id, saved: !on) } catch { await MainActor.run { saved = on } }
         }
+    }
+}
+
+
+/// Исполнители альбома маленькой строкой по центру; тап открывает исполнителя (первого или выбранного).
+struct AlbumArtistsLine: View {
+    let artists: [SpotifySimpleArtist]
+    @State private var open: SpotifySimpleArtist?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Array(artists.enumerated()), id: \.offset) { i, a in
+                if i > 0 { Text(", ").foregroundColor(.secondary) }
+                Text(a.name).foregroundColor(.secondary)
+                    .onTapGesture { if let id = a.id, !id.isEmpty { open = a } }
+            }
+        }
+        .font(.subheadline)
+        .lineLimit(1)
+        .background(NavigationLink(destination: SpotifyArtistScreen(artistId: open?.id ?? "", name: open?.name ?? ""),
+                                   isActive: Binding(get: { open != nil }, set: { if !$0 { open = nil } })) { EmptyView() }.opacity(0))
     }
 }
