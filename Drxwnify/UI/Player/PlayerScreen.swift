@@ -1,4 +1,5 @@
 import SwiftUI
+import Nuke
 
 /// Полноэкранный плеер (UI-052). Компоновка — как `ui/player/Player.kt`:
 /// шапка «Сейчас играет», обложка, название с кнопками справа, ползунок, три кнопки управления,
@@ -20,6 +21,7 @@ struct PlayerScreen: View {
     /// Прослушивания Spotify у играющего трека (из ответа альбома, как на Android 2.1.5).
     @State private var plays: Int?
     @State private var showCover = false
+    @State private var showShare = false
     @State private var seekHint: Int?
 
     var body: some View {
@@ -62,6 +64,14 @@ struct PlayerScreen: View {
                     .environmentObject(likes)
                     .environmentObject(downloads)
                     .modifier(MediumSheet())
+            }
+        })
+        .background(EmptyView().sheet(isPresented: $showShare) {
+            if let t = player.current {
+                SendTracksSheet(tracks: [t], addToPlaylist: { open(nil) { env.addToPlaylist = TrackBatch(tracks: [t]) } })
+                    .environmentObject(env).environmentObject(downloads)
+                    .modifier(MediumSheet())
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             }
         })
         .overlay(showSleep ? SleepTimerDialog(isPresented: $showSleep).environmentObject(player) : nil)
@@ -147,17 +157,18 @@ struct PlayerScreen: View {
                 if g.translation.width < -50 { player.skipNext() }
                 if g.translation.width > 50 { player.skipPrevious() }
             })
-            // Как на Android: двойной тап по левому/правому краю — перемотка на 10 с; тап по середине — обложка крупно.
+            // Как на Android: тап по левому/правому краю — перемотка на 5 с; тап по середине — обложка крупно.
             .overlay(HStack(spacing: 0) {
-                Color.clear.contentShape(Rectangle()).frame(width: side * 0.33)
-                    .onTapGesture(count: 2) { seek(-10) }
+                Color.clear.contentShape(Rectangle()).frame(width: side * 0.3)
+                    .onTapGesture { seek(-5) }
                 Color.clear.contentShape(Rectangle())
                     .onTapGesture { showCover = true }
-                Color.clear.contentShape(Rectangle()).frame(width: side * 0.33)
-                    .onTapGesture(count: 2) { seek(10) }
+                Color.clear.contentShape(Rectangle()).frame(width: side * 0.3)
+                    .onTapGesture { seek(5) }
             })
             .sheet(isPresented: $showCover) {
-                CoverViewer(url: SpotifyImageCDN.large(player.current?.artworkUrl))
+                CoverViewer(url: SpotifyImageCDN.large(player.current?.artworkUrl), title: player.current?.title ?? "cover")
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             }
     }
 
@@ -289,10 +300,8 @@ struct PlayerScreen: View {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
-    private func share() {
-        guard let t = player.current else { return }
-        shareItems = [AppLinks.trackLink(mediaId: t.id, title: t.title, by: t.artistNames) ?? "\(t.artistNames) — \(t.title)"]
-    }
+    /// «Поделиться» как на Android — нижнее окно: ссылкой, файлом (если скачан), в чат, в плейлист.
+    private func share() { showShare = true }
 
     // MARK: - Ползунок
 
@@ -467,11 +476,15 @@ struct SleepTimerDialog: View {
 }
 
 
-/// Обложка во весь экран: щипок — приближение, тап — закрыть.
+/// Обложка во весь экран: щипок — приближение, тап — закрыть, удержание — «Сохранить» / «Поделиться» (как на Android).
 struct CoverViewer: View {
     let url: String?
+    var title = "cover"
     @Environment(\.presentationMode) private var presentation
     @State private var scale: CGFloat = 1
+    @State private var actions = false
+    @State private var shareItems: [Any]?
+    @State private var saved = false
 
     var body: some View {
         ZStack {
@@ -479,7 +492,38 @@ struct CoverViewer: View {
             ArtworkView(url: url, size: UIMetrics.width, cornerRadius: 0)
                 .scaleEffect(scale)
                 .gesture(MagnificationGesture().onChanged { scale = max(1, min(4, $0)) }.onEnded { _ in withAnimation { scale = 1 } })
+            if saved {
+                Text(L("ios_cover_saved")).font(.subheadline.weight(.semibold)).foregroundColor(.white)
+                    .padding(.horizontal, 14).padding(.vertical, 8).background(Capsule().fill(Color.black.opacity(0.7)))
+                    .frame(maxHeight: .infinity, alignment: .bottom).padding(.bottom, 40)
+            }
         }
         .onTapGesture { presentation.wrappedValue.dismiss() }
+        .onLongPressGesture {
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            actions = true
+        }
+        .actionSheet(isPresented: $actions) {
+            ActionSheet(title: Text(title), buttons: [
+                .default(Text(L("ios_cover_save"))) { withImage { img in
+                    UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil)
+                    withAnimation { saved = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { withAnimation { saved = false } }
+                } },
+                .default(Text(L("share"))) { withImage { shareItems = [$0] } },
+                .cancel(),
+            ])
+        }
+        .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) {
+            ShareSheet(items: shareItems ?? [])
+        }
+    }
+
+    /// Картинка в полном размере (без уменьшения под экран).
+    private func withImage(_ use: @escaping (UIImage) -> Void) {
+        guard let u = SpotifyImageCDN.candidates(url).first else { return }
+        ImagePipeline.shared.loadImage(with: u) { result in
+            if case .success(let r) = result { use(r.image) }
+        }
     }
 }

@@ -150,6 +150,8 @@ struct SpotifyAlbumScreen: View {
 struct SpotifyArtistScreen: View {
     let artistId: String
     let name: String
+    /// Корень листа: «назад» закрывает лист.
+    var onClose: (() -> Void)? = nil
 
     struct Page {
         var artist: SpotifyArtist
@@ -228,7 +230,7 @@ struct SpotifyArtistScreen: View {
 
     private var heroButtons: some View {
         HStack {
-            Button(action: { presentation.wrappedValue.dismiss() }) {
+            Button(action: { if let close = onClose { close() } else { presentation.wrappedValue.dismiss() } }) {
                 Image(systemName: "chevron.left").font(.system(size: 17, weight: .semibold))
                     .frame(width: 38, height: 38)
                     .background(Circle().fill(Color.black.opacity(0.35)))

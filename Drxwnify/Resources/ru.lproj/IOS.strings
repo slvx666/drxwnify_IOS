@@ -181,3 +181,5 @@
 "ios_import_where" = "Плейлисты появятся в «Библиотеке» → «Плейлисты».";
 "ios_soundcloud_import_desc" = "Лайки и плейлисты профиля по ссылке";
 "ios_spotify_plays" = "%@ прослушиваний в Spotify";
+"ios_cover_save" = "Сохранить в «Фото»";
+"ios_cover_saved" = "Сохранено в «Фото»";

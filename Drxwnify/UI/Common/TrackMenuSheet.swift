@@ -96,7 +96,10 @@ struct TrackMenuSheet: View {
         }
         .background(Color(.systemBackground).ignoresSafeArea())
         .sheet(isPresented: $sending) {
-            SendTracksSheet(tracks: [track]).environmentObject(env).environmentObject(downloads)
+            SendTracksSheet(tracks: [track], addToPlaylist: addToPlaylist.map { add in { close(then: add) } })
+                .environmentObject(env).environmentObject(downloads)
+                .modifier(MediumSheet())
+                .modifier(ThemedRoot(theme: AppTheme.current))
         }
         .background(EmptyView().sheet(isPresented: $showInfo) {
             TrackInfoScreen(track: track, isCurrent: isCurrent).environmentObject(player).environmentObject(downloads)

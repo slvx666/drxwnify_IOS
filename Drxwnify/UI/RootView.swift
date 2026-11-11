@@ -44,7 +44,7 @@ struct RootView: View {
             }
             .background(EmptyView().sheet(item: $env.linkTarget) { target in
                 NavigationView {
-                    LinkTargetScreen(target: target)
+                    LinkTargetScreen(target: target, onClose: { env.linkTarget = nil })
                         .navigationBarItems(leading: Button(L("close")) { env.linkTarget = nil })
                 }
                 .navigationViewStyle(StackNavigationViewStyle())
@@ -55,6 +55,7 @@ struct RootView: View {
                 .environmentObject(env.friends)
                 .environmentObject(env.chats)
                 .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             })
             .background(EmptyView().sheet(item: $env.trackMenu) { req in
                 TrackMenuSheet(track: req.track,
@@ -68,6 +69,7 @@ struct RootView: View {
                     .environmentObject(env.likes)
                     .environmentObject(env.downloads)
                     .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
                     .modifier(MediumSheet())
             })
             .background(EmptyView().sheet(item: $env.trackSelection) { batch in
@@ -76,15 +78,18 @@ struct RootView: View {
                     .environmentObject(player)
                     .environmentObject(env.downloads)
                     .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             })
             .background(EmptyView().sheet(item: $env.addToPlaylist) { batch in
                 AddToPlaylistSheet(batch: batch)
                     .environmentObject(env)
                     .environmentObject(env.downloads)
                     .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             })
             .background(EmptyView().sheet(item: Binding(get: { suggestions.replies.first }, set: { _ in })) { reply in
                 SuggestionReplySheet(reply: reply).preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             })
             .sheet(isPresented: $showPlayer) {
                 PlayerScreen()
@@ -95,6 +100,7 @@ struct RootView: View {
                     .environmentObject(env.friends)
                     .environmentObject(env.chats)
                     .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
             }
     }
 
@@ -284,12 +290,14 @@ extension UINavigationController: UIGestureRecognizerDelegate {
 /// Экран, на который ведёт ссылка приложения или Spotify.
 struct LinkTargetScreen: View {
     let target: AppLinks.Target
+    /// Закрыть лист (у исполнителя своя кнопка «назад» вместо шапки).
+    var onClose: (() -> Void)? = nil
 
     var body: some View {
         switch target.kind {
         case .album: SpotifyAlbumScreen(albumId: target.id, name: target.title ?? "")
         case .playlist: SpotifyPlaylistScreen(playlistId: target.id, name: target.title ?? "")
-        case .artist: SpotifyArtistScreen(artistId: target.id, name: target.title ?? "")
+        case .artist: SpotifyArtistScreen(artistId: target.id, name: target.title ?? "", onClose: onClose)
         case .track: LinkedTrackScreen(target: target)
         }
     }

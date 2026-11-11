@@ -3,6 +3,8 @@ import SwiftUI
 /// «Отправить» выбранные треки (Android 2.2.0, 2.2.5): в чат другу карточками музыки или ссылкой через «Поделиться».
 struct SendTracksSheet: View {
     let tracks: [Track]
+    /// «В плейлист» (лист закрывается, выбор плейлиста открывает вызывающий).
+    var addToPlaylist: (() -> Void)? = nil
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var downloads: DownloadManager
     @Environment(\.presentationMode) private var presentation
@@ -15,6 +17,14 @@ struct SendTracksSheet: View {
                 Section {
                     Button(action: shareLinks) {
                         Label(L("ios_send_link"), systemImage: "link")
+                    }
+                    if let add = addToPlaylist {
+                        Button(action: {
+                            presentation.wrappedValue.dismiss()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: add)
+                        }) {
+                            Label(L("add_to_playlist"), systemImage: "text.badge.plus")
+                        }
                     }
                     if tracks.contains(where: { downloads.fileURL($0.id) != nil }) {
                         Button(action: { shareItems = downloads.exportCopies(tracks) }) {

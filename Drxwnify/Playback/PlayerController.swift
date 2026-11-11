@@ -583,9 +583,21 @@ final class PlayerController: NSObject, ObservableObject {
 
     private func measureBitrateIfNeeded(_ audio: ResolvedAudio) {
         bitrateTask?.cancel()
-        guard audio.stream.bitrate <= 0 || audio.isLocal, !audio.stream.isHLS else { return }
+        guard audio.stream.bitrate <= 0 || audio.isLocal else { return }
         let stream = audio.stream
         let fallback = Double(current?.durationMs ?? 0) / 1000
+        if stream.isHLS {
+            // HLS (VK): размер первого куска / его длительность из плейлиста.
+            bitrateTask = Task { [weak self] in
+                guard let kbps = await PlayerController.hlsKbps(stream), !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self = self, self.servingStream?.url == stream.url else { return }
+                    self.servingStream?.bitrate = kbps * 1000
+                    self.currentAudio?.stream.bitrate = kbps * 1000
+                }
+            }
+            return
+        }
         bitrateTask = Task { [weak self] in
             guard let bytes = await PlayerController.contentLength(stream), bytes > 0, !Task.isCancelled else { return }
             await MainActor.run {
@@ -604,6 +616,28 @@ final class PlayerController: NSObject, ObservableObject {
         let standard: [Double] = [64, 96, 128, 160, 192, 224, 256, 320]
         if let s = standard.min(by: { abs($0 - raw) < abs($1 - raw) }), abs(s - raw) / s < 0.06 { return Int(s) }
         return Int(raw.rounded())
+    }
+
+    static func hlsKbps(_ s: AudioStream) async -> Int? {
+        var r = URLRequest(url: s.url, timeoutInterval: 10)
+        for (k, v) in s.headers { r.setValue(v, forHTTPHeaderField: k) }
+        let text: String? = await withCheckedContinuation { cont in
+            URLSession.shared.dataTask(with: r) { d, _, _ in cont.resume(returning: d.flatMap { String(data: $0, encoding: .utf8) }) }.resume()
+        }
+        guard let lines = text?.components(separatedBy: .newlines) else { return nil }
+        var duration: Double?
+        for line in lines {
+            let l = line.trimmingCharacters(in: .whitespaces)
+            if l.hasPrefix("#EXTINF:") {
+                duration = Double(l.dropFirst(8).split(separator: ",").first ?? "")
+            } else if let d = duration, d > 1, !l.isEmpty, !l.hasPrefix("#"), let seg = URL(string: l, relativeTo: s.url)?.absoluteURL {
+                var part = s
+                part.url = seg
+                guard let bytes = await contentLength(part), bytes > 0 else { return nil }
+                return roundKbps(Double(bytes) * 8 / d / 1000)
+            }
+        }
+        return nil
     }
 
     static func contentLength(_ s: AudioStream) async -> Int64? {

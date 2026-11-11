@@ -91,6 +91,8 @@ struct ArtworkView: View {
         .clipShape(RoundedRectangle(cornerRadius: circle ? size / 2 : cornerRadius, style: .continuous))
         .onAppear { loader.load(url, pixelWidth: size * UIScreen.main.scale) }
         .onChange(of: url) { loader.load($0, pixelWidth: size * UIScreen.main.scale) }
+        // Размер мог вырасти после первой раскладки (плеер, шапки): догружаем крупнее, иначе картинка мыльная.
+        .onChange(of: size) { loader.load(url, pixelWidth: $0 * UIScreen.main.scale) }
         .onDisappear { loader.cancel() }
     }
 }
