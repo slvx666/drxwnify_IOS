@@ -14,6 +14,7 @@ struct SettingsScreen: View {
                 settingsLink(L("player_and_audio"), "play", PlayerSettingsScreen(settings: env.prefs.settings))
                 settingsLink(L("content"), "globe", ContentSettingsScreen(settings: env.prefs.settings))
                 settingsLink(L("music_sources"), "antenna.radiowaves.left.and.right", MusicSourcesScreen())
+                settingsLink("Last.fm", "dot.radiowaves.up.forward", LastFMSettingsScreen(settings: env.prefs.settings))
             }
             Section(header: Text(L("settings_section_privacy"))) {
                 settingsLink(L("privacy"), "lock.shield", PrivacySettingsScreen(settings: env.prefs.settings))
@@ -349,5 +350,59 @@ final class UpdateChecker: ObservableObject {
             if l != r { return l > r }
         }
         return false
+    }
+}
+
+// MARK: - Last.fm
+
+struct LastFMSettingsScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
+    @ObservedObject var settings: TypedStore
+    @State private var username = ""
+    @State private var password = ""
+    @State private var working = false
+    @State private var error: String?
+
+    var body: some View {
+        List {
+            if !LastFM.isConfigured {
+                Text(L("ios_lastfm_no_key")).foregroundColor(.secondary)
+            } else if let name = settings.get(PK.lastfmUsername), !(settings.get(PK.lastfmSession) ?? "").isEmpty {
+                Section {
+                    HStack { Text(L("ios_account")); Spacer(); Text(name).foregroundColor(.secondary) }
+                    Button(L("action_logout")) { env.lastfm.logout() }.foregroundColor(.red)
+                }
+                Section {
+                    PrefToggle(title: L("ios_lastfm_scrobble"), key: PK.lastfmScrobblingEnable, defaultValue: true, settings: settings)
+                    PrefToggle(title: L("ios_lastfm_now_playing"), key: PK.lastfmUseNowPlaying, defaultValue: true, settings: settings)
+                    PrefToggle(title: L("ios_lastfm_send_likes"), key: PK.lastfmUseSendLikes, defaultValue: false, settings: settings)
+                }
+            } else {
+                Section(footer: Text(error ?? L("ios_lastfm_login_hint")).foregroundColor(error == nil ? .secondary : .red)) {
+                    TextField(L("ios_lastfm_username"), text: $username).autocapitalization(.none).disableAutocorrection(true)
+                    SecureField(L("ios_lastfm_password"), text: $password)
+                    Button(action: login) {
+                        HStack { Text(L("ios_lastfm_login")); if working { Spacer(); ProgressView() } }
+                    }
+                    .disabled(username.isEmpty || password.isEmpty || working)
+                }
+            }
+        }
+        .listStyle(InsetGroupedListStyle())
+        .navigationTitle("Last.fm")
+    }
+
+    private func login() {
+        working = true
+        error = nil
+        let lf = env.lastfm, u = username, p = password
+        Task {
+            do {
+                try await lf.login(username: u, password: p)
+                await MainActor.run { working = false; password = "" }
+            } catch {
+                await MainActor.run { working = false; self.error = error.localizedDescription }
+            }
+        }
     }
 }

@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.9.3"
-    CURRENT_PROJECT_VERSION: "15"
+    MARKETING_VERSION: "0.9.4"
+    CURRENT_PROJECT_VERSION: "16"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: "NO"
     SWIFT_STRICT_CONCURRENCY: minimal
@@ -46,9 +46,14 @@ targets:
         UIBackgroundModes: [audio]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        LastFMApiKey: $(LASTFM_API_KEY)
+        LastFMSecret: $(LASTFM_SECRET)
         CFBundleURLTypes:
           - CFBundleURLName: com.drxwnify.ios
             CFBundleURLSchemes: [drxwnify]
+    configFiles:
+      Debug: secrets.xcconfig
+      Release: secrets.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.drxwnify.ios

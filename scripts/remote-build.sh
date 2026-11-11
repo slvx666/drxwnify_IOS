@@ -10,6 +10,9 @@ SPM="$HOME/drxwnify-spm"
 LOG="$PWD/build.log"
 : > "$LOG"
 
+# Секреты (Last.fm) не в git: без файла собирается приложение без Last.fm.
+[ -f secrets.xcconfig ] || printf 'LASTFM_API_KEY =\nLASTFM_SECRET =\n' > secrets.xcconfig
+
 echo "== xcodegen" >> "$LOG"
 xcodegen generate >> "$LOG" 2>&1 || exit 10
 

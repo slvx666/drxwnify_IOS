@@ -11,6 +11,8 @@ final class LikeManager: ObservableObject {
     private let settings: TypedStore
     private let spotify: SpotifyAPI
     private var checked = Set<String>()
+    /// Лайк поставлен или снят в приложении (Last.fm love).
+    var onLike: ((Track, Bool) -> Void)?
     private var cancellable: AnyCancellable?
 
     init(database: AppDatabase, settings: TypedStore, spotify: SpotifyAPI) {
@@ -44,6 +46,7 @@ final class LikeManager: ObservableObject {
 
     func set(_ track: Track, liked value: Bool) {
         if value { liked.insert(track.id) } else { liked.remove(track.id) }
+        onLike?(track, value)
         let db = database
         DispatchQueue.global(qos: .userInitiated).async {
             try? db.pool.write { d in

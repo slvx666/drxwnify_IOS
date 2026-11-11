@@ -143,3 +143,12 @@
 "ios_unblock" = "Разрешить";
 "ios_send" = "Отправить";
 "ios_track_blocked" = "Трек запрещён — пропускаю";
+"ios_lastfm_no_key" = "Ключ Last.fm не вшит в эту сборку.";
+"ios_account" = "Аккаунт";
+"ios_lastfm_scrobble" = "Скробблить прослушивания";
+"ios_lastfm_now_playing" = "«Сейчас играет»";
+"ios_lastfm_send_likes" = "Отправлять лайки";
+"ios_lastfm_username" = "Логин Last.fm";
+"ios_lastfm_password" = "Пароль";
+"ios_lastfm_login" = "Войти";
+"ios_lastfm_login_hint" = "Пароль уходит только в Last.fm и не сохраняется: хранится ключ сессии.";

@@ -5,3 +5,4 @@ DerivedData/
 build/
 Generated/
 .DS_Store
+secrets.xcconfig

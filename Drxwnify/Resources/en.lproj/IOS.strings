@@ -143,3 +143,12 @@
 "ios_unblock" = "Unblock";
 "ios_send" = "Send";
 "ios_track_blocked" = "Track is blocked — skipping";
+"ios_lastfm_no_key" = "This build has no Last.fm key.";
+"ios_account" = "Account";
+"ios_lastfm_scrobble" = "Scrobble plays";
+"ios_lastfm_now_playing" = "Now playing";
+"ios_lastfm_send_likes" = "Send likes";
+"ios_lastfm_username" = "Last.fm username";
+"ios_lastfm_password" = "Password";
+"ios_lastfm_login" = "Log in";
+"ios_lastfm_login_hint" = "The password goes only to Last.fm and is not stored; a session key is kept.";

@@ -13,6 +13,7 @@ final class AppEnvironment: ObservableObject {
     let audio: AudioFallbackEngine
     let vk: VkProvider
     let likes: LikeManager
+    let lastfm: LastFM
     let library: LibraryStore
     let downloads: DownloadManager
     let lyrics: LyricsStore
@@ -48,6 +49,7 @@ final class AppEnvironment: ObservableObject {
         spotify.yandex = YandexAPI(settings: prefs.settings)
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
         BlockedTracks.shared.configure(prefs)
+        lastfm = LastFM(settings: prefs.settings)
         library = LibraryStore(database: database)
         lyrics = LyricsStore(database: database)
         friends = FriendsHub(prefs: prefs, database: database)
@@ -80,7 +82,16 @@ final class AppEnvironment: ObservableObject {
                 c.hold("playing", playing)
             }
             .store(in: &bag)
-        p.onListened = { DispatchQueue.main.async { f.listened() } }
+        let lf = lastfm
+        lf.attach(p)
+        p.onListened = {
+            let t = p.current
+            DispatchQueue.main.async {
+                f.listened()
+                if let t = t { lf.scrobble(t) }
+            }
+        }
+        likes.onLike = { t, on in lf.love(t, on) }
         f.onFriendNow = { now in
             let wanted = now.track.track
             let position = Double(now.positionNow()) / 1000
