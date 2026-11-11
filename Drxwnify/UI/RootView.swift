@@ -68,10 +68,12 @@ struct RootView: View {
         } else {
             ZStack(alignment: .bottom) {
                 tabs
-                MiniPlayerView(style: .classic, showPlayer: $showPlayer)
-                    .padding(.bottom, Self.classicTabBarHeight)
+                if !env.chromeHidden {
+                    MiniPlayerView(style: .classic, showPlayer: $showPlayer)
+                        .padding(.bottom, Self.classicTabBarHeight)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                }
             }
-            .ignoresSafeArea(.keyboard, edges: .bottom)
         }
     }
 
@@ -112,6 +114,40 @@ struct MiniPlayerInset: ViewModifier {
 
 extension View {
     func miniPlayerInset() -> some View { modifier(MiniPlayerInset()) }
+    /// Прячет мини-плеер и панель вкладок, пока экран открыт (чат).
+    func hidesTabChrome() -> some View { modifier(HidesTabChrome()) }
+}
+
+/// iOS 16+: системное скрытие панели вкладок; iOS 14–15: прячем `UITabBar` напрямую.
+struct HidesTabChrome: ViewModifier {
+    @EnvironmentObject private var env: AppEnvironment
+
+    func body(content: Content) -> some View {
+        Group {
+            if #available(iOS 16.0, *) {
+                content.toolbar(.hidden, for: .tabBar)
+            } else {
+                content.background(TabBarHider())
+            }
+        }
+        .onAppear { env.chromeHidden = true }
+        .onDisappear { env.chromeHidden = false }
+    }
+}
+
+private struct TabBarHider: UIViewControllerRepresentable {
+    final class Controller: UIViewController {
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            tabBarController?.tabBar.isHidden = true
+        }
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            tabBarController?.tabBar.isHidden = false
+        }
+    }
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) {}
 }
 
 /// Экран, на который ведёт ссылка приложения или Spotify.

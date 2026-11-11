@@ -42,6 +42,7 @@ struct ChatScreen: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarItems(trailing: currentTrackButton)
+        .hidesTabChrome()
         .onAppear {
             chats.openPeer = peer
             chats.hold("chat", true)
