@@ -18,12 +18,23 @@ struct SpotifyTrackRow: View {
     var queueTitle: String?
     /// Альбом для треков, у которых его нет в ответе (экран альбома).
     var album: SpotifySimpleAlbum?
+    /// Число прослушиваний Spotify в подписи (экран альбома, Android 2.1.5).
+    var showPlayCount = false
 
     @EnvironmentObject private var player: PlayerController
     @EnvironmentObject private var likes: LikeManager
     @EnvironmentObject private var env: AppEnvironment
 
     private var isCurrent: Bool { player.current?.catalogId == track.id }
+
+    private var subtitle: String {
+        var parts = [track.artistNames]
+        if track.durationMs > 0 { parts.append(formatDuration(ms: track.durationMs)) }
+        if showPlayCount, let n = track.playCount, n > 0 {
+            parts.append(NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal))
+        }
+        return parts.joined(separator: " • ")
+    }
 
     private func start() {
         if context.isEmpty {
@@ -55,7 +66,7 @@ struct SpotifyTrackRow: View {
                         if track.explicit {
                             Image(systemName: "e.square.fill").font(.caption).foregroundColor(.secondary)
                         }
-                        Text(track.durationMs > 0 ? "\(track.artistNames) • \(formatDuration(ms: track.durationMs))" : track.artistNames)
+                        Text(subtitle)
                             .font(.caption).foregroundColor(.secondary).lineLimit(1)
                     }
                 }

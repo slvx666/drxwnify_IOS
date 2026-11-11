@@ -56,6 +56,30 @@ struct SpotifyAlbum: Codable, Hashable, Identifiable {
     var artistNames: String { artists.map { $0.name }.joined(separator: ", ") }
     var year: String? { releaseDate.map { String($0.prefix(4)) } }
 
+    /// «Сингл», «Альбом», «Мини-альбом», «Сборник» (как `lib_type_*` на Android).
+    var typeTitle: String? {
+        switch albumType {
+        case "single": return L("lib_type_single")
+        case "ep": return L("lib_type_ep")
+        case "compilation": return L("lib_type_compilation")
+        case "album": return L("lib_type_album")
+        default: return nil
+        }
+    }
+
+    /// Полная дата релиза «11 нояб. 2026 г.» (LIB-029); если известен только год — год.
+    var fullDate: String? {
+        guard let raw = releaseDate, raw.count >= 10 else { return year }
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: String(raw.prefix(10))) else { return year }
+        let out = DateFormatter()
+        out.dateStyle = .medium
+        out.timeStyle = .none
+        return out.string(from: date)
+    }
+
     var simple: SpotifySimpleAlbum {
         SpotifySimpleAlbum(id: id, name: name, images: images, releaseDate: releaseDate, albumType: albumType, artists: artists, uri: uri)
     }

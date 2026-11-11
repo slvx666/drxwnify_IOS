@@ -29,12 +29,16 @@ struct QueueScreen: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(L("queue")).font(.title3.weight(.bold))
-                Text([player.queueTitle, LPlural("n_song", player.queue.count)].compactMap { $0 }.joined(separator: " · "))
+                Text(player.queueTitle ?? "")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
             Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(LPlural("n_song", player.queue.count)).font(.subheadline)
+                Text(formatDuration(ms: player.queue.reduce(0) { $0 + $1.durationMs })).font(.caption.monospacedDigit()).foregroundColor(.secondary)
+            }
             Button(action: { player.queueLocked.toggle() }) {
                 Image(systemName: player.queueLocked ? "lock.fill" : "lock.open")
                     .frame(width: 44, height: 44)
@@ -97,6 +101,7 @@ struct QueueScreen: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { player.jump(to: index) }
+        .listRowBackground(isCurrent ? Color.accentColor.opacity(0.18) : Color.clear)
     }
 
     private func undoBar(_ r: (track: Track, index: Int)) -> some View {

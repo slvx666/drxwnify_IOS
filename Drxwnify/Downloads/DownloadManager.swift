@@ -28,6 +28,25 @@ final class DownloadManager: ObservableObject {
     /// Растёт при каждом завершении или удалении: экраны перечитывают список скачанного.
     @Published private(set) var revision = 0
 
+    /// Не скачавшийся трек и понятная причина («Почему не скачались», DL-008).
+    struct Failure: Identifiable {
+        var id: String { track.id }
+        let track: Track
+        let reason: String
+    }
+
+    /// Неудачи этого запуска по `Track.id`, в порядке появления.
+    @Published private(set) var failures: [Failure] = []
+
+    /// Повторить все неудачные загрузки.
+    func retryFailed() {
+        let tracks = failures.map { $0.track }
+        failures.removeAll()
+        download(tracks)
+    }
+
+    func clearFailures() { failures.removeAll() }
+
     private let engine: AudioFallbackEngine
     private let database: AppDatabase
     private var items: [String: Item] = [:]
@@ -78,6 +97,7 @@ final class DownloadManager: ObservableObject {
 
     func download(_ tracks: [Track]) {
         for t in tracks where items[t.id] == nil && running[t.id] == nil && !queue.contains(where: { $0.id == t.id }) {
+            failures.removeAll { $0.id == t.id }
             queue.append(t)
             states[t.id] = .queued
         }
@@ -162,10 +182,14 @@ final class DownloadManager: ObservableObject {
             await MainActor.run { self.finished(track, item) }
         } catch {
             let cancelled = Task.isCancelled || error is CancellationError
-            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            let message = Self.reason(error)
             await MainActor.run {
                 self.running[track.id] = nil
-                if !cancelled { self.states[track.id] = .failed(message) }
+                if !cancelled {
+                    self.states[track.id] = .failed(message)
+                    self.failures.removeAll { $0.id == track.id }
+                    self.failures.append(Failure(track: track, reason: message))
+                }
                 self.pump()
             }
         }
@@ -319,3 +343,16 @@ enum HLSDownloader {
         return r.text
     }
 }
+
+extension DownloadManager {
+    /// Причина неудачи словами Android (`download_issue_*`): YouTube/VK ограничили запросы — смени сервер VPN;
+    /// трека нет в источниках; иначе текст ошибки.
+    static func reason(_ error: Error) -> String {
+        let explained = PlaybackTrouble.explain(error)
+        let raw = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        if explained != error.localizedDescription { return explained }
+        if case AudioResolveError.notFound? = error as? AudioResolveError { return L("download_issue_not_found") }
+        return raw
+    }
+}
+

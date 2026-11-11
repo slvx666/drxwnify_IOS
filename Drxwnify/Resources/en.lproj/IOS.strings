@@ -129,3 +129,5 @@
 "ios_update_latest" = "You have the latest version";
 "ios_update_available" = "Version %@ is available — open release";
 "ios_filter_local" = "Local";
+"ios_retry_all" = "Retry all";
+"ios_clear" = "Clear";

@@ -129,3 +129,5 @@
 "ios_update_latest" = "Установлена последняя версия";
 "ios_update_available" = "Доступна версия %@ — открыть релиз";
 "ios_filter_local" = "Локальные";
+"ios_retry_all" = "Повторить все";
+"ios_clear" = "Очистить";

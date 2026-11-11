@@ -93,7 +93,7 @@ struct SpotifyAlbumScreen: View {
                     imageUrl: album.images.best(minWidth: 300),
                     title: album.name,
                     subtitle: album.artistNames,
-                    detail: [album.year, album.totalTracks > 0 ? LPlural("n_song", album.totalTracks) : nil]
+                    detail: [album.typeTitle, album.fullDate, album.totalTracks > 0 ? LPlural("n_song", album.totalTracks) : nil]
                         .compactMap { $0 }.joined(separator: " · ")
                 )
                 ForEach(album.artists.filter { $0.id != nil }, id: \.self) { artist in
@@ -104,7 +104,7 @@ struct SpotifyAlbumScreen: View {
                 PlayShuffleRow(tracks: album.tracks, queueTitle: album.name, album: album.simple)
                 ForEach(Array(album.tracks.enumerated()), id: \.offset) { index, track in
                     SpotifyTrackRow(track: track, number: index + 1, context: album.tracks, index: index,
-                                    queueTitle: album.name, album: album.simple)
+                                    queueTitle: album.name, album: album.simple, showPlayCount: true)
                 }
             }
             if case .failed(let message) = loader.state {
@@ -161,6 +161,7 @@ struct SpotifyArtistScreen: View {
                     circle: true
                 )
                 if !page.top.isEmpty {
+                    PlayShuffleRow(tracks: page.top, queueTitle: page.artist.name)
                     Section(header: Text(L("artist_top_tracks"))) {
                         ForEach(Array(page.top.prefix(10).enumerated()), id: \.offset) { i, t in
                             SpotifyTrackRow(track: t, context: Array(page.top.prefix(10)), index: i, queueTitle: page.artist.name)

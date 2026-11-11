@@ -43,6 +43,7 @@ private struct LocalTrackListContent: View {
         List {
             LibrarySearchField(text: $query)
             if kind == .songs { sortRow }
+            if kind == .downloaded && !downloads.failures.isEmpty { FailedDownloadsSection() }
             Text(LPlural("n_song", shown.count)).font(.caption).foregroundColor(.secondary).listRowBackground(Color.clear)
             TrackPlayShuffleRow(tracks: shown, queueTitle: title)
             ForEach(Array(shown.enumerated()), id: \.offset) { i, t in
@@ -330,5 +331,34 @@ struct LocalArtistScreen: View {
         .navigationTitle(artist.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { tracks = env.library.artistSongs(artist.id) }
+    }
+}
+
+/// «Почему не скачались» (DL-008): треки и причина у каждой, «Повторить все» и «Очистить».
+struct FailedDownloadsSection: View {
+    @EnvironmentObject private var downloads: DownloadManager
+    @State private var expanded = true
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            ForEach(downloads.failures) { f in
+                HStack(alignment: .top, spacing: 10) {
+                    ArtworkView(url: f.track.artworkUrl, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(f.track.title).lineLimit(1)
+                        Text(f.track.artistNames).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                        Text(f.reason).font(.caption).foregroundColor(.orange)
+                    }
+                }
+            }
+            HStack {
+                Button(L("ios_retry_all")) { downloads.retryFailed() }.buttonStyle(BorderlessButtonStyle())
+                Spacer()
+                Button(L("ios_clear")) { downloads.clearFailures() }.buttonStyle(BorderlessButtonStyle()).foregroundColor(.secondary)
+            }
+        } label: {
+            Label(L("download_issues_why", downloads.failures.count), systemImage: "exclamationmark.triangle")
+                .foregroundColor(.orange)
+        }
     }
 }
