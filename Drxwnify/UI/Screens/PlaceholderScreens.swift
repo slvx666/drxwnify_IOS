@@ -20,10 +20,3 @@ struct StagePlaceholder: View {
         .miniPlayerInset()
     }
 }
-
-struct TogetherScreen: View {
-    var body: some View {
-        StagePlaceholder(systemImage: "person.2", note: "")
-            .navigationTitle(L("together"))
-    }
-}

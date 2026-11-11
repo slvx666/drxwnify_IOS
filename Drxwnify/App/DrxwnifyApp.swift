@@ -11,6 +11,8 @@ struct DrxwnifyApp: App {
                 .environmentObject(env.player)
                 .environmentObject(env.likes)
                 .environmentObject(env.downloads)
+                .environmentObject(env.friends)
+                .environmentObject(env.chats)
                 .preferredColorScheme(.dark)
         }
     }

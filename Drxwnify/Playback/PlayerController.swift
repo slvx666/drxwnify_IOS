@@ -297,6 +297,9 @@ final class PlayerController: NSObject, ObservableObject {
 
     var audioEngine: AudioFallbackEngine { engine }
 
+    /// Прослушивание записано в историю (друзья получают историю).
+    var onListened: (() -> Void)?
+
     /// Скачанный файл трека, если он есть: тогда звук в сети не ищется (офлайн).
     var localAudio: ((Track) -> ResolvedAudio?)?
 
@@ -690,6 +693,7 @@ final class PlayerController: NSObject, ObservableObject {
         let played = Int64(playedSeconds * 1000)
         let db = database
         DispatchQueue.global(qos: .utility).async { SongStore.recordPlay(db, track: t, playTimeMs: played) }
+        onListened?()
     }
 
     // MARK: - Таймер сна (PLAY-014)

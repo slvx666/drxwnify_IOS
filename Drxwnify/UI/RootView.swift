@@ -17,7 +17,15 @@ struct RootView: View {
     var body: some View {
         content
             .onOpenURL { url in
+                if env.friends.openInvite(url) { tab = .together; return }
                 if let t = AppLinks.parse(url) { env.linkTarget = t }
+            }
+            .alert(isPresented: Binding(get: { env.friends.invite != nil }, set: { if !$0 { env.friends.invite = nil } })) {
+                let name = env.friends.invite?.name ?? ""
+                return Alert(title: Text(L("ios_invite_title")),
+                             message: Text(L("ios_invite_message", name.isEmpty ? String((env.friends.invite?.pubkey ?? "").prefix(8)) : name)),
+                             primaryButton: .default(Text(L("ios_friends_add"))) { env.friends.answerInvite(accept: true) },
+                             secondaryButton: .cancel(Text(L("cancel"))) { env.friends.answerInvite(accept: false) })
             }
             .background(EmptyView().sheet(item: $env.linkTarget) { target in
                 NavigationView {
@@ -29,11 +37,14 @@ struct RootView: View {
                 .environmentObject(player)
                 .environmentObject(env.likes)
                 .environmentObject(env.downloads)
+                .environmentObject(env.friends)
+                .environmentObject(env.chats)
                 .preferredColorScheme(.dark)
             })
             .background(EmptyView().sheet(item: $env.addToPlaylist) { batch in
                 AddToPlaylistSheet(batch: batch)
                     .environmentObject(env)
+                    .environmentObject(env.downloads)
                     .preferredColorScheme(.dark)
             })
             .sheet(isPresented: $showPlayer) {
@@ -42,6 +53,8 @@ struct RootView: View {
                     .environmentObject(player)
                     .environmentObject(env.likes)
                     .environmentObject(env.downloads)
+                    .environmentObject(env.friends)
+                    .environmentObject(env.chats)
                     .preferredColorScheme(.dark)
             }
     }
@@ -72,6 +85,7 @@ struct RootView: View {
                 .tag(AppTab.search)
             tabPage(TogetherScreen())
                 .tabItem { Label(L("together"), systemImage: "person.2.fill") }
+                .modifier(UnreadBadge(count: env.chats.unreadTotal))
                 .tag(AppTab.together)
             tabPage(LibraryScreen())
                 .tabItem { Label(L("filter_library"), systemImage: "music.note.list") }
@@ -142,5 +156,18 @@ struct LinkedTrackScreen: View {
         let api = env.spotify
         let id = target.id
         loader.load(force: force) { try await api.track(id) }
+    }
+}
+
+/// Число непрочитанных на вкладке (`badge` есть только с iOS 15).
+struct UnreadBadge: ViewModifier {
+    let count: Int
+
+    func body(content: Content) -> some View {
+        if #available(iOS 15.0, *) {
+            content.badge(count)
+        } else {
+            content
+        }
     }
 }

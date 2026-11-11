@@ -124,6 +124,7 @@ struct BackupScreen: View {
         let backup = env.backup
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try backup.restore(from: url) }
+            DispatchQueue.main.async { env.reloadAfterRestore() }
             try? FileManager.default.removeItem(at: url)
             DispatchQueue.main.async {
                 busy = .none

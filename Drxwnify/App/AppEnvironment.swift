@@ -16,6 +16,9 @@ final class AppEnvironment: ObservableObject {
     let library: LibraryStore
     let downloads: DownloadManager
     let lyrics: LyricsStore
+    let friends: FriendsHub
+    let chats: ChatHub
+    private var bag = Set<AnyCancellable>()
     /// Треки для листа «Добавить в плейлист».
     @Published var addToPlaylist: TrackBatch?
     /// Экран, который надо открыть поверх всего (ссылка, «перейти к альбому» из плеера).
@@ -35,6 +38,8 @@ final class AppEnvironment: ObservableObject {
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
         library = LibraryStore(database: database)
         lyrics = LyricsStore(database: database)
+        friends = FriendsHub(prefs: prefs, database: database)
+        chats = ChatHub(friends: friends, prefs: prefs)
         downloads = DownloadManager(engine: audio, database: database)
         let dl = downloads
         player.localAudio = { track in
@@ -50,6 +55,40 @@ final class AppEnvironment: ObservableObject {
         let hashes = spotifyHashes
         Task.detached { await hashes.sync() }
         Task.detached { await RemoteConfig.shared.refreshIfNeeded() }
+        wireFriends()
+    }
+
+    /// Что играет — друзьям (now, с задержкой 1,5 с), прослушивания — в историю друзей; «слушать вместе» ведёт плеер за другом.
+    private func wireFriends() {
+        let f = friends, p = player, c = chats
+        Publishers.CombineLatest(p.$currentIndex, p.$isPlaying)
+            .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
+            .sink { _, playing in
+                f.playerChanged(track: p.current, positionMs: Int64(p.position * 1000), playing: playing, durationMs: Int64(p.duration * 1000))
+                c.hold("playing", playing)
+            }
+            .store(in: &bag)
+        p.onListened = { DispatchQueue.main.async { f.listened() } }
+        f.onFriendNow = { now in
+            let wanted = now.track.track
+            let position = Double(now.positionNow()) / 1000
+            if p.current?.id != wanted.id {
+                p.play([wanted], title: f.data[f.listeningTo ?? ""]?.name)
+                if position > 3 { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { p.seek(to: Double(now.positionNow()) / 1000) } }
+            } else if abs(p.position - position) > 3 {
+                // Расхождение больше 3 с — перемотка (`ListenAlong.kt:79`).
+                p.seek(to: position)
+            }
+            if now.playing && !p.isPlaying { p.resume() }
+            if !now.playing && p.isPlaying { p.pause() }
+        }
+    }
+
+    /// После восстановления резервной копии: настройки друзей и чатов перечитываются.
+    func reloadAfterRestore() {
+        friends.load()
+        chats.refresh()
+        likes.reload()
     }
 
     /// Открывает базу; повреждённый файл откладывает в сторону и создаёт новый.

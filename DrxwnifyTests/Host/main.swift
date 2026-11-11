@@ -33,6 +33,7 @@ do {
 testSpotifyAuth()
 testResolver()
 testProvidersLive()
+testNostr(vectors: ProcessInfo.processInfo.environment["NOSTR_VECTORS"] ?? "")
 
 print(failures == 0 ? "ALL TESTS PASSED" : "FAILED: \(failures)")
 exit(failures == 0 ? 0 : 1)
