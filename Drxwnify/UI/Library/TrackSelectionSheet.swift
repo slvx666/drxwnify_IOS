@@ -13,6 +13,7 @@ struct TrackSelectionSheet: View {
     @State private var shareItems: [Any]?
     @State private var filesToSave: [URL]?
     @State private var notice: String?
+    @State private var sending: [Track]?
 
     private var picked: [Track] { selected.sorted().compactMap { tracks.indices.contains($0) ? tracks[$0] : nil } }
     private var allBlocked: Bool { !picked.isEmpty && picked.allSatisfy(blocked.isBlocked) }
@@ -60,6 +61,9 @@ struct TrackSelectionSheet: View {
         .background(EmptyView().sheet(isPresented: Binding(get: { filesToSave != nil }, set: { if !$0 { filesToSave = nil } })) {
             ExportToFiles(urls: filesToSave ?? [])
         })
+        .background(EmptyView().sheet(isPresented: Binding(get: { sending != nil }, set: { if !$0 { sending = nil } })) {
+            SendTracksSheet(tracks: sending ?? []).environmentObject(env)
+        })
         .alert(isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Alert(title: Text(notice ?? ""))
         }
@@ -103,10 +107,7 @@ struct TrackSelectionSheet: View {
             action(L(allBlocked ? "ios_unblock" : "ios_block"), allBlocked ? "checkmark.circle" : "nosign") {
                 blocked.set(picked, blocked: !allBlocked)
             }
-            action(L("ios_send"), "arrowshape.turn.up.right") {
-                let lines = picked.map { AppLinks.trackLink(mediaId: $0.id, title: $0.title, by: $0.artistNames) ?? "\($0.artistNames) — \($0.title)" }
-                shareItems = [lines.joined(separator: "\n\n")]
-            }
+            action(L("ios_send"), "arrowshape.turn.up.right") { sending = picked }
         }
         .disabled(selected.isEmpty)
         .padding(.vertical, 6)

@@ -11,6 +11,7 @@ struct RootView: View {
     @State private var showPlayer = false
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var player: PlayerController
+    @ObservedObject private var suggestions = Suggestions.shared
 
     /// Высота стандартной панели вкладок над безопасной зоной (iOS 14–25).
     static let classicTabBarHeight: CGFloat = 49
@@ -66,6 +67,9 @@ struct RootView: View {
                     .environmentObject(env)
                     .environmentObject(env.downloads)
                     .preferredColorScheme(.dark)
+            })
+            .background(EmptyView().sheet(item: Binding(get: { suggestions.replies.first }, set: { _ in })) { reply in
+                SuggestionReplySheet(reply: reply).preferredColorScheme(.dark)
             })
             .sheet(isPresented: $showPlayer) {
                 PlayerScreen()

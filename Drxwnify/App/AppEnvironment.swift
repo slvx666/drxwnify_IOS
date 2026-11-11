@@ -71,6 +71,9 @@ final class AppEnvironment: ObservableObject {
         Task.detached { await hashes.sync() }
         Task.detached { await RemoteConfig.shared.refreshIfNeeded() }
         wireFriends()
+        // Ответы разработчика на предложку — немного после запуска, когда релеи подключатся.
+        Suggestions.shared.friends = friends
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { Suggestions.shared.checkReplies() }
     }
 
     /// Что играет — друзьям (now, с задержкой 1,5 с), прослушивания — в историю друзей; «слушать вместе» ведёт плеер за другом.

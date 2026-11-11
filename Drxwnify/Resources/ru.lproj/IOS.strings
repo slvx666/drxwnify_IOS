@@ -159,3 +159,9 @@
 "ios_no_downloaded_selected" = "Среди выбранных нет скачанных треков";
 "ios_auto_download_like" = "Скачивать при лайке";
 "ios_low_quality_skipped" = "Рекомендация ниже 120 kbps — пропускаю";
+"ios_already_in_playlist" = "Уже есть";
+"ios_send_link" = "Ссылкой";
+"ios_send_to_chat" = "В чат";
+"ios_recent" = "Недавние";
+"ios_chat_music" = "Музыка в чат";
+"ios_forward" = "Переслать";

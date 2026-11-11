@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.9.8"
-    CURRENT_PROJECT_VERSION: "20"
+    MARKETING_VERSION: "0.9.9"
+    CURRENT_PROJECT_VERSION: "21"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: "NO"
     SWIFT_STRICT_CONCURRENCY: minimal
@@ -43,7 +43,8 @@ targets:
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
-        UIBackgroundModes: [audio]
+        UIBackgroundModes: [audio, fetch]
+        BGTaskSchedulerPermittedIdentifiers: [com.drxwnify.ios.chats]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         LastFMApiKey: $(LASTFM_API_KEY)

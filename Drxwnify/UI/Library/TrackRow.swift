@@ -127,6 +127,8 @@ struct AddToPlaylistSheet: View {
     @State private var playlists: [LocalPlaylist] = []
     @State private var newName = ""
     @State private var duplicate: (playlist: LocalPlaylist, count: Int)?
+    /// Сколько треков пачки уже есть в каждом плейлисте.
+    @State private var present: [String: Int] = [:]
 
     var body: some View {
         NavigationView {
@@ -151,7 +153,11 @@ struct AddToPlaylistSheet: View {
                                 PlaylistCover(playlist: p, size: 44)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(p.name).foregroundColor(.primary).lineLimit(1)
-                                    Text(LPlural("n_song", p.songCount)).font(.caption).foregroundColor(.secondary)
+                                    if present[p.id] == batch.tracks.count && !batch.tracks.isEmpty {
+                                        Text(L("ios_already_in_playlist")).font(.caption).foregroundColor(.accentColor)
+                                    } else {
+                                        Text(LPlural("n_song", p.songCount)).font(.caption).foregroundColor(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -172,18 +178,30 @@ struct AddToPlaylistSheet: View {
                     },
                     secondaryButton: .cancel(Text(L("ios_skip_duplicates"))) {
                         if let p = d?.playlist {
-                            let existing = env.library.contained(in: p.id, batch.tracks.map { $0.id })
+                            let existing = duplicates(in: p)
                             finish(p, batch.tracks.filter { !existing.contains($0.id) })
                         }
                     })
             }
         }
         .navigationViewStyle(StackNavigationViewStyle())
-        .onAppear { playlists = env.library.playlists() }
+        .onAppear {
+            playlists = env.library.playlists()
+            var counts: [String: Int] = [:]
+            for p in playlists where p.isEditable { counts[p.id] = duplicates(in: p).count }
+            present = counts
+        }
+    }
+
+    /// Треки пачки, что уже есть в плейлисте: по id или та же песня из другого источника (артист + название, Android 2.2.5).
+    private func duplicates(in p: LocalPlaylist) -> Set<String> {
+        let ids = env.library.contained(in: p.id, batch.tracks.map { $0.id })
+        let keys = Set(env.library.playlistEntries(p.id).map { RadioKeys.trackKey($0.track.artists.first?.name ?? "", $0.track.title) })
+        return Set(batch.tracks.filter { ids.contains($0.id) || keys.contains(RadioKeys.trackKey($0.artists.first?.name ?? "", $0.title)) }.map { $0.id })
     }
 
     private func add(to p: LocalPlaylist) {
-        let existing = env.library.contained(in: p.id, batch.tracks.map { $0.id })
+        let existing = duplicates(in: p)
         if existing.isEmpty { finish(p, batch.tracks) } else { duplicate = (p, existing.count) }
     }
 

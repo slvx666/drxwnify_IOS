@@ -14,6 +14,9 @@ struct ChatScreen: View {
     @State private var editing: ChatMessage?
     @StateObject private var keyboard = KeyboardWatcher()
     @State private var showStickers = false
+    @State private var showMusic = false
+    @State private var forwarding: ChatMessage?
+    @EnvironmentObject private var env: AppEnvironment
 
     private static let quickReactions = ["❤️", "🔥", "😂", "👍", "😮", "😢"]
 
@@ -45,6 +48,9 @@ struct ChatScreen: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabChrome()
+        .background(EmptyView().sheet(item: $forwarding) { m in
+            ForwardSheet(message: m, from: peer).environmentObject(friends).environmentObject(chats)
+        })
         .onAppear {
             chats.openPeer = peer
             chats.hold("chat", true)
@@ -67,14 +73,19 @@ struct ChatScreen: View {
         return player.current != nil && !keyboard.visible ? MiniPlayerView.classicHeight + 4 : 0
     }
 
-    /// Отправить в чат то, что играет сейчас (значок ♪ справа, как на Android).
+    /// Музыка в чат (значок ♪ справа, как на Android): панель с тем, что играет, недавними, любимыми и поиском.
     private var currentTrackButton: some View {
-        Button(action: {
-            if let t = player.current { chats.send(peer, text: "", music: [ChatMusic.of(t)]) }
-        }) {
+        Button(action: { showMusic = true }) {
             Image(systemName: "music.note").font(.system(size: 22, weight: .semibold)).frame(width: 36, height: 38)
         }
-        .disabled(player.current == nil || !chats.canWrite(peer))
+        .disabled(!chats.canWrite(peer))
+        .sheet(isPresented: $showMusic) {
+            ChatMusicPicker { tracks in
+                if !tracks.isEmpty { chats.send(peer, text: "", music: tracks.map { ChatMusic.of($0) }) }
+            }
+            .environmentObject(env)
+            .environmentObject(player)
+        }
     }
 
     private func reload() {
@@ -115,6 +126,7 @@ struct ChatScreen: View {
             .contentShape(Rectangle())
             .contextMenu { menu(m) }
             .onTapGesture(count: 2) { chats.react(m, key: "❤️") }
+            .modifier(SwipeToReply { replyTo = m; editing = nil })
             if !m.mine { Spacer(minLength: 50) }
         }
         .padding(.horizontal, 10)
@@ -164,6 +176,7 @@ struct ChatScreen: View {
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(m.mine ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.18)))
             .contextMenu { menu(m) }
             .onTapGesture(count: 2) { chats.react(m, key: "❤️") }
+            .modifier(SwipeToReply { replyTo = m; editing = nil })
             if !m.mine { Spacer(minLength: 50) }
         }
         .padding(.horizontal, 10)
@@ -177,6 +190,7 @@ struct ChatScreen: View {
         if !m.text.isEmpty {
             Button(action: { UIPasteboard.general.string = Stickers.plain(m.text) }) { Label(L("ios_copy"), systemImage: "doc.on.doc") }
         }
+        Button(action: { forwarding = m }) { Label(L("ios_forward"), systemImage: "arrowshape.turn.up.right") }
         if m.mine && !m.text.isEmpty {
             Button(action: { editing = m; replyTo = nil; text = m.text }) { Label(L("ios_edit"), systemImage: "pencil") }
         }
@@ -211,7 +225,6 @@ struct ChatScreen: View {
         .buttonStyle(PlainButtonStyle())
     }
 
-    @EnvironmentObject private var env: AppEnvironment
 
     private func open(_ c: ChatMusic) {
         if let t = c.track {

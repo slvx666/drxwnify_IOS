@@ -25,6 +25,7 @@ struct SettingsScreen: View {
             }
             Section(header: Text(L("settings_section_system"))) {
                 settingsLink(L("app_update_title"), "arrow.down.app", AboutScreen())
+                settingsLink(L("suggest_title"), "lightbulb", SuggestionsScreen())
                 settingsLink(L("about"), "info.circle", AboutScreen())
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()

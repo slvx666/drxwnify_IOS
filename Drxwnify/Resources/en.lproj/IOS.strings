@@ -159,3 +159,9 @@
 "ios_no_downloaded_selected" = "None of the selected tracks is downloaded";
 "ios_auto_download_like" = "Download when liked";
 "ios_low_quality_skipped" = "Recommendation below 120 kbps — skipping";
+"ios_already_in_playlist" = "Already there";
+"ios_send_link" = "As a link";
+"ios_send_to_chat" = "To a chat";
+"ios_recent" = "Recent";
+"ios_chat_music" = "Music to chat";
+"ios_forward" = "Forward";
