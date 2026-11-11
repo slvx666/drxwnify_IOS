@@ -14,7 +14,6 @@ settings:
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: "NO"
     SWIFT_STRICT_CONCURRENCY: minimal
-    ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 packages:
   GRDB:
     url: https://github.com/groue/GRDB.swift
@@ -44,6 +43,9 @@ targets:
         LSRequiresIPhoneOS: true
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
+        CFBundleIcons:
+          CFBundlePrimaryIcon:
+            CFBundleIconFiles: [AppIcon60x60, AppIcon40x40]
         UIBackgroundModes: [audio, fetch]
         BGTaskSchedulerPermittedIdentifiers: [com.drxwnify.ios.chats]
         UISupportedInterfaceOrientations:
