@@ -463,7 +463,21 @@ final class SpotifyAPI {
 
     // MARK: Альбом (getAlbum)
 
+    /// Альбом с кэшем (Android 2.2.5: альбомы в кэше, открываются без сети): свежий из памяти/диска — сразу,
+    /// иначе из сети; нет сети — последний сохранённый.
     func album(_ albumId: String) async throws -> SpotifyAlbum {
+        if let hit = AlbumCache.shared.get(albumId, maxAge: 6 * 3600) { return hit }
+        do {
+            let a = try await fetchAlbum(albumId)
+            AlbumCache.shared.put(a)
+            return a
+        } catch {
+            if let stale = AlbumCache.shared.get(albumId, maxAge: .infinity) { return stale }
+            throw error
+        }
+    }
+
+    private func fetchAlbum(_ albumId: String) async throws -> SpotifyAlbum {
         if YandexIds.isYandex(albumId), let y = yandex { return try await y.album(albumId) }
         let vars: JSONObject = ["uri": "spotify:album:\(albumId)", "locale": "", "offset": 0, "limit": 50]
         let response = try await graphqlPost("getAlbum", variables: vars)
@@ -817,5 +831,45 @@ final class SpotifyAPI {
         default:
             return nil
         }
+    }
+}
+
+
+/// Кэш альбомов: память + `Caches/albums/<id>.json`.
+final class AlbumCache {
+    static let shared = AlbumCache()
+    private var memory: [String: (Date, SpotifyAlbum)] = [:]
+    private let lock = NSLock()
+    private let dir: URL = {
+        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("albums", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }()
+
+    private func file(_ id: String) -> URL { dir.appendingPathComponent(id.replacingOccurrences(of: "/", with: "_") + ".json") }
+
+    func get(_ id: String, maxAge: TimeInterval) -> SpotifyAlbum? {
+        lock.lock()
+        if let (at, a) = memory[id] {
+            lock.unlock()
+            return Date().timeIntervalSince(at) <= maxAge ? a : nil
+        }
+        lock.unlock()
+        let f = file(id)
+        guard let data = try? Data(contentsOf: f), let a = try? JSONDecoder().decode(SpotifyAlbum.self, from: data) else { return nil }
+        let at = (try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        lock.lock(); memory[id] = (at, a); lock.unlock()
+        return Date().timeIntervalSince(at) <= maxAge ? a : nil
+    }
+
+    /// Для первого кадра экрана: любой сохранённый, без сети.
+    func any(_ id: String) -> SpotifyAlbum? { get(id, maxAge: .infinity) }
+
+    func put(_ a: SpotifyAlbum) {
+        lock.lock()
+        memory[a.id] = (Date(), a)
+        if memory.count > 300 { memory.removeAll() }
+        lock.unlock()
+        if let data = try? JSONEncoder().encode(a) { try? data.write(to: file(a.id), options: .atomic) }
     }
 }

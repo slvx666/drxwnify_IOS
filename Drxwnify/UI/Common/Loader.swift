@@ -10,6 +10,13 @@ final class Loader<Value>: ObservableObject {
     @Published private(set) var state = State.idle
     private var task: Task<Void, Never>?
 
+    init() {}
+
+    /// Сразу с готовым значением из кэша: экран рисуется полным с первого кадра, а свежие данные приходят тихо.
+    init(seed: Value?) {
+        if let v = seed { state = .loaded(v) }
+    }
+
     var value: Value? {
         if case .loaded(let v) = state { return v }
         return nil

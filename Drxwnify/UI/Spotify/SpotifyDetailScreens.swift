@@ -86,7 +86,13 @@ struct SpotifyAlbumScreen: View {
     let name: String
 
     @EnvironmentObject private var env: AppEnvironment
-    @StateObject private var loader = Loader<SpotifyAlbum>()
+    @StateObject private var loader: Loader<SpotifyAlbum>
+
+    init(albumId: String, name: String) {
+        self.albumId = albumId
+        self.name = name
+        _loader = StateObject(wrappedValue: Loader(seed: AlbumCache.shared.any(albumId)))
+    }
 
     var body: some View {
         List {
@@ -136,7 +142,8 @@ struct SpotifyAlbumScreen: View {
             .disabled(loader.value == nil)
             ShareLinkButton(text: AppLinks.shareText(.album, id: albumId, title: loader.value?.name ?? name, by: loader.value?.artistNames))
         })
-        .onAppear { load(force: false) }
+        // Из кэша сразу, свежее — тихо.
+        .onAppear { load(force: loader.value != nil) }
     }
 
     private func load(force: Bool) {
@@ -163,7 +170,16 @@ struct SpotifyArtistScreen: View {
 
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var player: PlayerController
-    @StateObject private var loader = Loader<Page>()
+    @StateObject private var loader: Loader<Page>
+    /// Последние открытые страницы исполнителей: повторное открытие — сразу, без «загрузки».
+    static var pages: [String: Page] = [:]
+
+    init(artistId: String, name: String, onClose: (() -> Void)? = nil) {
+        self.artistId = artistId
+        self.name = name
+        self.onClose = onClose
+        _loader = StateObject(wrappedValue: Loader(seed: SpotifyArtistScreen.pages[artistId]))
+    }
     @State private var following: Bool?
     @State private var radioBusy = false
     @State private var shuffleBusy = false
@@ -221,7 +237,7 @@ struct SpotifyArtistScreen: View {
         .navigationBarHidden(true)
         .overlay(heroButtons, alignment: .top)
         .onAppear {
-            load(force: false)
+            load(force: loader.value != nil)
             readFollowing()
         }
     }
@@ -406,11 +422,13 @@ struct SpotifyArtistScreen: View {
         loader.load(force: force) {
             // Все запросы читают один и тот же закэшированный ответ queryArtistOverview.
             let artist = try await api.artist(id)
-            return Page(artist: artist,
-                        top: (try? await api.artistTopTracks(id)) ?? [],
-                        discography: (try? await api.artistDiscography(id)) ?? SpotifyArtistDiscography(),
-                        related: (try? await api.artistRelatedArtists(id)) ?? [],
-                        appearsOn: (try? await api.artistAppearsOn(id)) ?? [])
+            let page = Page(artist: artist,
+                            top: (try? await api.artistTopTracks(id)) ?? [],
+                            discography: (try? await api.artistDiscography(id)) ?? SpotifyArtistDiscography(),
+                            related: (try? await api.artistRelatedArtists(id)) ?? [],
+                            appearsOn: (try? await api.artistAppearsOn(id)) ?? [])
+            await MainActor.run { SpotifyArtistScreen.pages[id] = page }
+            return page
         }
     }
 }
