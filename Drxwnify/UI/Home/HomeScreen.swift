@@ -9,8 +9,7 @@ struct HomeScreen: View {
 
     var body: some View {
         HomeContent(settings: env.prefs.settings, feed: HomeFeed.shared, friends: env.friends)
-            .navigationTitle(L("home"))
-            .navigationBarItems(trailing: TopBarIcons(together: $env.showTogether))
+            .rootTitle(L("home")) { TopBarIcons(together: $env.showTogether) }
     }
 }
 

@@ -147,6 +147,7 @@ struct SpotifyShelf<Item: Identifiable, Destination: View>: View {
             .padding(.vertical, 6)
         }
         .listRowInsets(EdgeInsets())
+        .themedRow()
     }
 }
 

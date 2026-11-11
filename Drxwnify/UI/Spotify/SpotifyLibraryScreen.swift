@@ -6,8 +6,7 @@ struct LibraryScreen: View {
 
     var body: some View {
         SpotifyLibraryContent(settings: env.prefs.settings, session: env.spotifyTokens.state, library: env.library)
-            .navigationTitle(L("filter_library"))
-            .navigationBarItems(trailing: TopBarIcons())
+            .rootTitle(L("filter_library")) { TopBarIcons() }
     }
 }
 

@@ -26,7 +26,14 @@ final class AppEnvironment: ObservableObject {
     @Published var linkTarget: AppLinks.Target?
     /// Сколько открытых экранов прячут панель вкладок («Вместе», чат — как на Android).
     @Published var chromeHiders = 0
-    var chromeHidden: Bool { chromeHiders > 0 }
+    /// Корни вкладок, которые сейчас на экране, и выбранная вкладка: своя нижняя панель видна только на корне (как на Android).
+    @Published var rootVisible = Set<String>()
+    @Published var currentTab = "home"
+    var chromeHidden: Bool {
+        if chromeHiders > 0 { return true }
+        if #available(iOS 26.0, *) { return false }
+        return !rootVisible.contains(currentTab)
+    }
     /// Открыт чат: мини-плеер уходит, строка ввода стоит внизу (сообщил пользователь на 0.10.1).
     @Published var chatOpen = false
     /// Открыть «Вместе» с главной (приглашение по ссылке, значок в шапке).

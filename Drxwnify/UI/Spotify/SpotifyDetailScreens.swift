@@ -163,7 +163,6 @@ struct SpotifyArtistScreen: View {
     @EnvironmentObject private var player: PlayerController
     @StateObject private var loader = Loader<Page>()
     @State private var following: Bool?
-    @State private var showAllTop = false
     @State private var radioBusy = false
     @State private var shuffleBusy = false
     @State private var bioExpanded = false
@@ -179,16 +178,10 @@ struct SpotifyArtistScreen: View {
                 stats(page)
                 if !page.top.isEmpty {
                     sectionTitle(L("artist_top_tracks"))
-                    let shown = Array(page.top.prefix(showAllTop ? 10 : 5))
+                    let shown = Array(page.top.prefix(10))
                     ForEach(Array(shown.enumerated()), id: \.offset) { i, t in
-                        SpotifyTrackRow(track: t, context: Array(page.top.prefix(10)), index: i, queueTitle: page.artist.name,
+                        SpotifyTrackRow(track: t, context: shown, index: i, queueTitle: page.artist.name,
                                         origin: .artist(page.artist.id, shuffleAll: false))
-                    }
-                    if page.top.count > 5 {
-                        Button(showAllTop ? L("ios_show_less") : L("ios_show_all")) { withAnimation { showAllTop.toggle() } }
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundColor(.accentColor)
-                            .listRowBackground(Color.clear)
                     }
                 }
                 albumShelf(L("albums"), page.discography.albums)
@@ -219,15 +212,36 @@ struct SpotifyArtistScreen: View {
         }
         .listStyle(PlainListStyle())
         .environment(\.defaultMinListRowHeight, 0)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .hidesTabChrome()
-        .navigationBarItems(trailing:
-            ShareLinkButton(text: AppLinks.shareText(.artist, id: artistId, title: loader.value?.artist.name ?? name, by: nil)))
+        // Фото с самого верха экрана (как на Android): системная шапка спрятана, свои кнопки поверх.
+        .ignoresSafeArea(edges: .top)
+        .background(AppTheme.rowBackground.ignoresSafeArea())
+        .navigationBarTitle("", displayMode: .inline)
+        .navigationBarHidden(true)
+        .overlay(heroButtons, alignment: .top)
         .onAppear {
             load(force: false)
             readFollowing()
         }
+    }
+
+    @Environment(\.presentationMode) private var presentation
+
+    private var heroButtons: some View {
+        HStack {
+            Button(action: { presentation.wrappedValue.dismiss() }) {
+                Image(systemName: "chevron.left").font(.system(size: 17, weight: .semibold))
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Color.black.opacity(0.35)))
+            }
+            Spacer()
+            ShareLinkButton(text: AppLinks.shareText(.artist, id: artistId, title: loader.value?.artist.name ?? name, by: nil))
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 38, height: 38)
+                .background(Circle().fill(Color.black.opacity(0.35)))
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 12)
+        .padding(.top, 4)
     }
 
     private func sectionTitle(_ text: String) -> some View {
@@ -406,20 +420,27 @@ struct ArtistHero: View {
 
     var body: some View {
         let w = UIMetrics.width
-        let h = min(w * 0.9, UIMetrics.isShort ? 260 : 360)
+        let top = UIApplication.shared.windows.first?.safeAreaInsets.top ?? 20
+        let h = min(w * 1.0, UIMetrics.isShort ? 330 : 430) + top
         return ZStack(alignment: .bottomLeading) {
-            ArtworkView(url: imageUrl, size: w, cornerRadius: 0, placeholderSymbol: "person.fill")
+            ArtworkView(url: imageUrl, size: h, cornerRadius: 0, placeholderSymbol: "person.fill")
                 .frame(width: w, height: h)
                 .clipped()
-            LinearGradient(colors: [.clear, Color(.systemBackground)], startPoint: .center, endPoint: .bottom)
+            // Плавный переход фото в цвет фона темы.
+            LinearGradient(gradient: Gradient(stops: [
+                .init(color: AppTheme.rowBackground.opacity(0), location: 0.45),
+                .init(color: AppTheme.rowBackground.opacity(0.75), location: 0.8),
+                .init(color: AppTheme.rowBackground, location: 1),
+            ]), startPoint: .top, endPoint: .bottom)
                 .frame(width: w, height: h)
             Text(title).font(.system(size: UIMetrics.isNarrow ? 30 : 36, weight: .bold))
                 .lineLimit(2).minimumScaleFactor(0.6)
-                .padding(.horizontal, 16).padding(.bottom, 6)
+                .padding(.horizontal, 16).padding(.bottom, 4)
         }
         .frame(width: w, height: h)
         .listRowInsets(EdgeInsets())
-        .listRowBackground(Color.clear)
+        .listRowBackground(AppTheme.rowBackground)
+        .listRowSeparatorHiddenCompat()
     }
 }
 

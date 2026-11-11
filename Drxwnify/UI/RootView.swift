@@ -25,6 +25,8 @@ struct RootView: View {
 
     var body: some View {
         content
+            .onAppear { env.currentTab = Self.name(tab) }
+            .onChange(of: tab) { env.currentTab = Self.name($0) }
             .onOpenURL { url in
                 if env.friends.openInvite(url) { tab = .home; env.showTogether = true; return }
                 if let t = AppLinks.parse(url) { env.linkTarget = t }
@@ -99,18 +101,36 @@ struct RootView: View {
                     MiniPlayerView(style: .accessory, showPlayer: $showPlayer)
                 }
         } else {
+            // iOS 14–25: своя нижняя панель вместо системной — капсула размером с мини-плеер; на экранах-деталях
+            // уходит сразу в начале перехода, и мини-плеер встаёт на её место (как на Android).
             ZStack(alignment: .bottom) {
-                tabs
-                if !env.chatOpen {
-                    MiniPlayerView(style: .classic, showPlayer: $showPlayer)
-                        .padding(.bottom, env.chromeHidden ? 0 : Self.classicTabBarHeight)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                ZStack {
+                    tabPage(HomeScreen().tabRoot("home")).opacity(tab == .home ? 1 : 0).allowsHitTesting(tab == .home)
+                    tabPage(SearchScreen().tabRoot("search")).opacity(tab == .search ? 1 : 0).allowsHitTesting(tab == .search)
+                    tabPage(LibraryScreen().tabRoot("library")).opacity(tab == .library ? 1 : 0).allowsHitTesting(tab == .library)
                 }
+                VStack(spacing: 0) {
+                    if !env.chatOpen {
+                        MiniPlayerView(style: .classic, showPlayer: $showPlayer)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                    if !env.chromeHidden {
+                        CapsuleTabBar(tab: $tab)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             }
-            // Панель вкладок прячется системой; мини-плеер едет вслед за ней, а не прыгает.
-            .animation(.easeInOut(duration: 0.28), value: env.chromeHidden)
-            .animation(.easeInOut(duration: 0.22), value: env.chatOpen)
+            .animation(.easeOut(duration: 0.2), value: env.chromeHidden)
+            .animation(.easeOut(duration: 0.2), value: env.chatOpen)
+        }
+    }
+
+    static func name(_ t: AppTab) -> String {
+        switch t {
+        case .home: return "home"
+        case .search: return "search"
+        case .library: return "library"
         }
     }
 
@@ -134,53 +154,130 @@ struct RootView: View {
     }
 }
 
-/// Отступ снизу под мини-плеер для прокручиваемого содержимого (на iOS 26 система делает это сама).
+/// Отступ снизу под мини-плеер и свою нижнюю панель (на iOS 26 система делает это сама).
 struct MiniPlayerInset: ViewModifier {
+    @EnvironmentObject private var env: AppEnvironment
+
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content
         } else {
-            content.padding(.bottom, MiniPlayerView.classicHeight + 8)
+            content.padding(.bottom, MiniPlayerView.classicHeight + 8 + (env.chromeHidden ? 0 : CapsuleTabBar.height + 4))
         }
     }
 }
 
 extension View {
     func miniPlayerInset() -> some View { modifier(MiniPlayerInset()) }
-    /// Прячет панель вкладок, пока экран открыт («Вместе», чат).
+    /// Прячет нижнюю панель, пока экран открыт (детали, «Вместе», чат).
     func hidesTabChrome() -> some View { modifier(HidesTabChrome()) }
 }
 
-/// iOS 16+: системное скрытие панели вкладок; iOS 14–15: прячем `UITabBar` напрямую.
+/// iOS 26: системное скрытие панели вкладок. iOS 14–25: счётчик для своей панели, который меняется
+/// в `viewWillAppear` / `viewWillDisappear` — то есть в самом начале перехода, а не после него.
 struct HidesTabChrome: ViewModifier {
     @EnvironmentObject private var env: AppEnvironment
 
     func body(content: Content) -> some View {
-        Group {
-            if #available(iOS 16.0, *) {
-                content.toolbar(.hidden, for: .tabBar)
-            } else {
-                content.background(TabBarHider())
-            }
+        if #available(iOS 26.0, *) {
+            content.toolbar(.hidden, for: .tabBar)
+                .onAppear { env.chromeHiders += 1 }
+                .onDisappear { env.chromeHiders = max(0, env.chromeHiders - 1) }
+        } else {
+            content.background(ChromeSignal(change: { delta in
+                env.chromeHiders = max(0, env.chromeHiders + delta)
+            }))
         }
-        .onAppear { env.chromeHiders += 1 }
-        .onDisappear { env.chromeHiders = max(0, env.chromeHiders - 1) }
     }
 }
 
-private struct TabBarHider: UIViewControllerRepresentable {
+extension View {
+    /// Корень вкладки: пока он на экране, нижняя панель видна.
+    func tabRoot(_ name: String) -> some View { modifier(TabRootSignal(name: name)) }
+}
+
+struct TabRootSignal: ViewModifier {
+    let name: String
+    @EnvironmentObject private var env: AppEnvironment
+
+    func body(content: Content) -> some View {
+        content.background(ChromeSignal(change: { delta in
+            if delta > 0 { env.rootVisible.insert(name) } else { env.rootVisible.remove(name) }
+        }))
+    }
+}
+
+private struct ChromeSignal: UIViewControllerRepresentable {
+    let change: (Int) -> Void
+
     final class Controller: UIViewController {
+        var change: ((Int) -> Void)?
+        private var counted = false
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
-            tabBarController?.tabBar.isHidden = true
+            if !counted { counted = true; change?(1) }
         }
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            tabBarController?.tabBar.isHidden = false
+            if counted { counted = false; change?(-1) }
         }
     }
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) {}
+    func makeUIViewController(context: Context) -> Controller {
+        let c = Controller()
+        c.change = change
+        return c
+    }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.change = change }
+}
+
+/// Своя нижняя панель: капсула той же ширины и высоты, что мини-плеер.
+struct CapsuleTabBar: View {
+    @Binding var tab: AppTab
+    static var height: CGFloat { MiniPlayerView.classicHeight }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            item(.home, L("home"), "house.fill")
+            item(.search, L("search"), "magnifyingglass")
+            item(.library, L("filter_library"), "music.note.list")
+        }
+        .frame(height: Self.height)
+        .background(BlurView(style: .systemChromeMaterial))
+        .clipShape(Capsule(style: .continuous))
+        .overlay(Capsule(style: .continuous).stroke(Color.secondary.opacity(0.25), lineWidth: 1))
+        .padding(.horizontal, 10)
+        .padding(.bottom, 4)
+    }
+
+    private func item(_ t: AppTab, _ title: String, _ symbol: String) -> some View {
+        Button(action: {
+            if tab != t { UISelectionFeedbackGenerator().selectionChanged() }
+            tab = t
+        }) {
+            VStack(spacing: 3) {
+                Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
+                    .frame(width: 54, height: 28)
+                    .background(Capsule().fill(tab == t ? Color.accentColor.opacity(0.22) : Color.clear))
+                Text(title).font(.system(size: 10, weight: tab == t ? .semibold : .regular)).lineLimit(1)
+            }
+            .foregroundColor(tab == t ? .accentColor : .secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+/// Возврат свайпом от края работает и там, где системная шапка спрятана (экран исполнителя).
+extension UINavigationController: UIGestureRecognizerDelegate {
+    override open func viewDidLoad() {
+        super.viewDidLoad()
+        interactivePopGestureRecognizer?.delegate = self
+    }
+
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        viewControllers.count > 1
+    }
 }
 
 /// Экран, на который ведёт ссылка приложения или Spotify.
@@ -280,5 +377,30 @@ struct MediumSheet: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Шапка вкладки как на Android: название слева в одной строке со значками справа (без крупного заголовка iOS).
+struct RootTitleBar<Trailing: View>: ViewModifier {
+    let title: String
+    let trailing: Trailing
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Text(title).font(.system(size: UIMetrics.isNarrow ? 22 : 24, weight: .bold)).lineLimit(1).fixedSize()
+                }
+                ToolbarItem(placement: .navigationBarTrailing) { trailing }
+            }
+    }
+}
+
+extension View {
+    func rootTitle<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {
+        modifier(RootTitleBar(title: title, trailing: trailing()))
     }
 }

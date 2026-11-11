@@ -32,8 +32,7 @@ struct SearchScreen: View {
                 results
             }
         }
-        .navigationTitle(L("search"))
-        .navigationBarTitleDisplayMode(.inline)
+        .rootTitle(L("search")) { TopBarIcons() }
         .onAppear { model.attach(env) }
     }
 
