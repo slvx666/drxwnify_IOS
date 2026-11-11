@@ -84,6 +84,7 @@ struct TrackRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .modifier(BlockedLook(track: track))
         .contextMenu { TrackMenuItems(track: track) }
     }
 }
@@ -285,6 +286,16 @@ struct PlayButtonsRow: View {
     let tracks: [Track]
     let play: () -> Void
     let shuffle: () -> Void
+    @EnvironmentObject private var env: AppEnvironment
+
+    /// «Выбрать треки», как значок в шапке альбома на Android.
+    private var selectButton: some View {
+        Button(action: { env.trackSelection = TrackBatch(tracks: tracks) }) {
+            Image(systemName: "checklist").font(.system(size: 17))
+                .frame(width: 40, height: 40).foregroundColor(.secondary)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
 
     var body: some View {
         HStack(spacing: 22) {
@@ -306,7 +317,22 @@ struct PlayButtonsRow: View {
             DownloadAllButton(tracks: tracks)
             Spacer()
         }
+        .overlay(selectButton, alignment: .trailing)
         .disabled(tracks.isEmpty)
         .padding(.vertical, 4)
+    }
+}
+
+/// Запрещённый трек: блёклый, с ⊘ (Android 2.2.5).
+struct BlockedLook: ViewModifier {
+    let track: Track
+    @ObservedObject private var blocked = BlockedTracks.shared
+
+    func body(content: Content) -> some View {
+        if blocked.isBlocked(track) {
+            content.opacity(0.4).overlay(Image(systemName: "nosign").foregroundColor(.secondary).padding(.trailing, 40), alignment: .trailing)
+        } else {
+            content
+        }
     }
 }

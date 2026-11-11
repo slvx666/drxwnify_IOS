@@ -54,6 +54,13 @@ struct RootView: View {
                     .preferredColorScheme(.dark)
                     .modifier(MediumSheet())
             })
+            .background(EmptyView().sheet(item: $env.trackSelection) { batch in
+                TrackSelectionSheet(tracks: batch.tracks)
+                    .environmentObject(env)
+                    .environmentObject(player)
+                    .environmentObject(env.downloads)
+                    .preferredColorScheme(.dark)
+            })
             .background(EmptyView().sheet(item: $env.addToPlaylist) { batch in
                 AddToPlaylistSheet(batch: batch)
                     .environmentObject(env)

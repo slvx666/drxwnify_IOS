@@ -135,3 +135,11 @@
 "ios_primary_source" = "Main source";
 "ios_primary_source_hint" = "Where the library and search come from when both accounts are connected.";
 "ios_stickers" = "Stickers";
+"ios_select_tracks" = "Select tracks";
+"ios_select_all" = "Select all";
+"ios_select_none" = "Select none";
+"ios_to_playlist" = "To playlist";
+"ios_block" = "Block";
+"ios_unblock" = "Unblock";
+"ios_send" = "Send";
+"ios_track_blocked" = "Track is blocked — skipping";

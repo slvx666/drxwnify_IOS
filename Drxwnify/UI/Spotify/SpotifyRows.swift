@@ -76,6 +76,7 @@ struct SpotifyTrackRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PlainButtonStyle())
+        .modifier(BlockedLook(track: Track(track, album: album)))
         .contextMenu { TrackMenuItems(track: Track(track, album: album)) }
     }
 }

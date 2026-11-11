@@ -1,0 +1,93 @@
+import SwiftUI
+
+/// Выделение треков (Android 2.0.2–2.2.5, `ui/component/TrackSelection.kt`): галочки, «Выбрать все»,
+/// действия «В плейлист», «В очередь», «Скачать», «Запретить / Разрешить», «Отправить».
+struct TrackSelectionSheet: View {
+    let tracks: [Track]
+    @EnvironmentObject private var env: AppEnvironment
+    @EnvironmentObject private var player: PlayerController
+    @EnvironmentObject private var downloads: DownloadManager
+    @ObservedObject private var blocked = BlockedTracks.shared
+    @Environment(\.presentationMode) private var presentation
+    @State private var selected = Set<Int>()
+    @State private var shareItems: [Any]?
+
+    private var picked: [Track] { selected.sorted().compactMap { tracks.indices.contains($0) ? tracks[$0] : nil } }
+    private var allBlocked: Bool { !picked.isEmpty && picked.allSatisfy(blocked.isBlocked) }
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 0) {
+                List {
+                    ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
+                        Button(action: { toggle(i) }) {
+                            HStack(spacing: 12) {
+                                Image(systemName: selected.contains(i) ? "checkmark.circle.fill" : "circle")
+                                    .font(.title3).foregroundColor(selected.contains(i) ? .accentColor : .secondary)
+                                ArtworkView(url: t.artworkUrl, size: 42)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(t.title).lineLimit(1)
+                                    Text(t.artistNames).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                if blocked.isBlocked(t) { Image(systemName: "nosign").foregroundColor(.secondary) }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    }
+                }
+                .listStyle(PlainListStyle())
+                actionBar
+            }
+            .navigationTitle(selected.isEmpty ? L("ios_select_tracks") : LPlural("n_song", selected.count))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(
+                leading: Button(L("close")) { presentation.wrappedValue.dismiss() },
+                trailing: Button(selected.count == tracks.count ? L("ios_select_none") : L("ios_select_all")) {
+                    selected = selected.count == tracks.count ? [] : Set(tracks.indices)
+                })
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
+        .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) {
+            ShareSheet(items: shareItems ?? [])
+        }
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 0) {
+            action(L("ios_to_playlist"), "text.badge.plus") {
+                let t = picked
+                presentation.wrappedValue.dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { env.addToPlaylist = TrackBatch(tracks: t) }
+            }
+            action(L("add_to_queue"), "text.append") { player.addToQueue(picked); presentation.wrappedValue.dismiss() }
+            action(L("action_download"), "arrow.down.to.line") { downloads.download(picked); presentation.wrappedValue.dismiss() }
+            action(L(allBlocked ? "ios_unblock" : "ios_block"), allBlocked ? "checkmark.circle" : "nosign") {
+                blocked.set(picked, blocked: !allBlocked)
+            }
+            action(L("ios_send"), "arrowshape.turn.up.right") {
+                let lines = picked.map { AppLinks.trackLink(mediaId: $0.id, title: $0.title, by: $0.artistNames) ?? "\($0.artistNames) — \($0.title)" }
+                shareItems = [lines.joined(separator: "\n\n")]
+            }
+        }
+        .disabled(selected.isEmpty)
+        .padding(.vertical, 6)
+        .background(Color(.secondarySystemBackground).ignoresSafeArea(edges: .bottom))
+    }
+
+    private func action(_ title: String, _ symbol: String, _ run: @escaping () -> Void) -> some View {
+        Button(action: run) {
+            VStack(spacing: 4) {
+                Image(systemName: symbol).font(.system(size: 18))
+                Text(title).font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48)
+        }
+        .foregroundColor(selected.isEmpty ? .secondary : .primary)
+    }
+
+    private func toggle(_ i: Int) {
+        if selected.contains(i) { selected.remove(i) } else { selected.insert(i) }
+    }
+}

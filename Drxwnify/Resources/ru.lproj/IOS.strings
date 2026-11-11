@@ -135,3 +135,11 @@
 "ios_primary_source" = "Основной источник";
 "ios_primary_source_hint" = "Откуда медиатека и поиск, когда подключены оба аккаунта.";
 "ios_stickers" = "Стикеры";
+"ios_select_tracks" = "Выбрать треки";
+"ios_select_all" = "Выбрать все";
+"ios_select_none" = "Снять выбор";
+"ios_to_playlist" = "В плейлист";
+"ios_block" = "Запретить";
+"ios_unblock" = "Разрешить";
+"ios_send" = "Отправить";
+"ios_track_blocked" = "Трек запрещён — пропускаю";

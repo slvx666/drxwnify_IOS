@@ -30,6 +30,8 @@ final class AppEnvironment: ObservableObject {
     @Published var showTogether = false
     /// Открытое меню трека (лист в `RootView`).
     @Published var trackMenu: TrackMenuRequest?
+    /// Открытое выделение треков (лист в `RootView`).
+    @Published var trackSelection: TrackBatch?
 
     init() {
         prefs = Prefs()
@@ -45,6 +47,7 @@ final class AppEnvironment: ObservableObject {
         spotify.settings = prefs.settings
         spotify.yandex = YandexAPI(settings: prefs.settings)
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
+        BlockedTracks.shared.configure(prefs)
         library = LibraryStore(database: database)
         lyrics = LyricsStore(database: database)
         friends = FriendsHub(prefs: prefs, database: database)

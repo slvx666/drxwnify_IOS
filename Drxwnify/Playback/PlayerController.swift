@@ -320,6 +320,10 @@ final class PlayerController: NSObject, ObservableObject {
         duration = Double(track.durationMs) / 1000
         errorText = nil
         wantsPlay = autoplay
+        if BlockedTracks.shared.isBlocked(track) {
+            fail(L("ios_track_blocked"), index: index)
+            return
+        }
         retriedCurrent = isRetry
         resetPlayCounter()
         loadArtwork(track)
