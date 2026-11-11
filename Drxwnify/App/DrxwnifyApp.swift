@@ -9,6 +9,7 @@ struct DrxwnifyApp: App {
             RootView()
                 .environmentObject(env)
                 .environmentObject(env.player)
+                .environmentObject(env.likes)
                 .preferredColorScheme(.dark)
         }
     }

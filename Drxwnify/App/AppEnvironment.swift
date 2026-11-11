@@ -10,18 +10,28 @@ final class AppEnvironment: ObservableObject {
     let spotifyTokens: SpotifyTokenManager
     let spotifyHashes: SpotifyHashes
     let spotify: SpotifyAPI
+    let audio: AudioFallbackEngine
+    let vk: VkProvider
+    let likes: LikeManager
+    /// Экран, который надо открыть поверх всего (ссылка, «перейти к альбому» из плеера).
+    @Published var linkTarget: AppLinks.Target?
 
     init() {
         prefs = Prefs()
         database = Self.openDatabase()
         backup = BackupManager(prefs: prefs, database: database)
-        player = PlayerController()
+        vk = VkProvider(settings: prefs.settings)
+        audio = AudioFallbackEngine(database: database, settings: prefs.settings,
+                                    providers: [SoundCloudProvider(settings: prefs.settings), YouTubeProvider(), vk, LosslessProvider(), BandcampProvider(), AudiusProvider()])
+        player = PlayerController(engine: audio, database: database, settings: prefs.settings)
         spotifyTokens = SpotifyTokenManager(settings: prefs.settings)
         spotifyHashes = SpotifyHashes(settings: prefs.settings)
         spotify = SpotifyAPI(tokens: spotifyTokens, hashes: spotifyHashes)
+        likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
         // Свежие GQL-хеши при каждом запуске (INT-006).
         let hashes = spotifyHashes
         Task.detached { await hashes.sync() }
+        Task.detached { await RemoteConfig.shared.refreshIfNeeded() }
     }
 
     /// Открывает базу; повреждённый файл откладывает в сторону и создаёт новый.

@@ -55,6 +55,10 @@ struct SpotifyAlbum: Codable, Hashable, Identifiable {
 
     var artistNames: String { artists.map { $0.name }.joined(separator: ", ") }
     var year: String? { releaseDate.map { String($0.prefix(4)) } }
+
+    var simple: SpotifySimpleAlbum {
+        SpotifySimpleAlbum(id: id, name: name, images: images, releaseDate: releaseDate, albumType: albumType, artists: artists, uri: uri)
+    }
 }
 
 struct SpotifyArtist: Codable, Hashable, Identifiable {
@@ -117,6 +121,41 @@ struct SpotifyPaging<T> {
     var total: Int = 0
     var limit: Int = 20
     var offset: Int = 0
+}
+
+struct SpotifyHomeItem: Hashable, Identifiable {
+    enum Kind { case playlist, album, artist }
+
+    var kind: Kind
+    var id: String
+    var uri: String
+    var name: String
+    var subtitle: String?
+    var imageUrl: String?
+}
+
+struct SpotifyHomeSection: Identifiable {
+    var uri: String
+    var title: String?
+    var typename: String
+    var items: [SpotifyHomeItem]
+
+    var id: String { uri + (title ?? "") }
+}
+
+struct SpotifyHomeFeed {
+    var greeting: String?
+    var sections: [SpotifyHomeSection]
+}
+
+struct SpotifySearchResult {
+    var tracks: [SpotifyTrack] = []
+    var tracksTotal = 0
+    var albums: [SpotifyAlbum] = []
+    var artists: [SpotifyArtist] = []
+    var playlists: [SpotifyPlaylist] = []
+
+    var isEmpty: Bool { tracks.isEmpty && albums.isEmpty && artists.isEmpty && playlists.isEmpty }
 }
 
 struct SpotifyArtistDiscography {

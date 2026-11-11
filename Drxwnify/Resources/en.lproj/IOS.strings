@@ -29,3 +29,17 @@
 "ios_playlist" = "Playlist";
 "ios_album" = "Album";
 "ios_artist" = "Artist";
+"ios_audio_not_found" = "No audio found for this track";
+"ios_audio_no_sources" = "All audio sources are turned off";
+"ios_audio_stream_failed" = "Couldn't play the stream";
+"ios_searching_audio" = "Looking for audio…";
+"ios_queue_empty" = "The queue is empty";
+"ios_removed_from_queue" = "“%@” removed from the queue";
+"ios_clear_queue" = "Clear queue";
+"ios_timer_left" = "%@ left";
+"ios_timer_cancel" = "Turn the timer off";
+"ios_lock_queue" = "Lock the queue";
+"ios_unlock_queue" = "Allow editing the queue";
+"ios_vk_save_token" = "Save token";
+"ios_vk_bad_token" = "This doesn't look like a VK token or a link with access_token";
+"ios_vk_logout" = "Sign out of VK";

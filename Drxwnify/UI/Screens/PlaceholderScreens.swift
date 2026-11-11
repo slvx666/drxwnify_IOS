@@ -21,30 +21,6 @@ struct StagePlaceholder: View {
     }
 }
 
-struct HomeScreen: View {
-    var body: some View {
-        StagePlaceholder(systemImage: "house", note: appVersionLine)
-            .navigationTitle(L("home"))
-            .navigationBarItems(trailing: NavigationLink(destination: SettingsScreen()) {
-                Image(systemName: "gearshape")
-            })
-    }
-
-    private var appVersionLine: String {
-        let info = Bundle.main.infoDictionary
-        let version = info?["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "Drxwnify \(version) (\(build)) · iOS \(UIDevice.current.systemVersion)"
-    }
-}
-
-struct SearchScreen: View {
-    var body: some View {
-        StagePlaceholder(systemImage: "magnifyingglass", note: "")
-            .navigationTitle(L("search"))
-    }
-}
-
 struct TogetherScreen: View {
     var body: some View {
         StagePlaceholder(systemImage: "person.2", note: "")

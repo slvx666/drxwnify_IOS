@@ -504,4 +504,193 @@ final class SpotifyAPI {
                                  images: parseImages(item.obj("visuals")?.obj("avatarImage")?.arr("sources")), uri: uri)
         }
     }
+
+    // MARK: - Поиск (GQL: searchDesktop)
+
+    func search(_ query: String, limit: Int = 20, offset: Int = 0) async throws -> SpotifySearchResult {
+        let vars: JSONObject = [
+            "searchTerm": query, "offset": offset, "limit": limit, "numberOfTopResults": 5,
+            "includeAudiobooks": false, "includeArtistHasConcertsField": false, "includePreReleases": false,
+            "includeLocalConcertsField": false, "includeAuthors": false,
+        ]
+        let response = try await graphqlPost("searchDesktop", variables: vars)
+        guard let data = response.obj("data")?.obj("searchV2") else {
+            throw SpotifyError(statusCode: 500, message: "Invalid searchDesktop response")
+        }
+        var result = SpotifySearchResult()
+        let tracksSection = data.obj("tracksV2")
+        for elem in tracksSection?.objects("items") ?? [] {
+            guard let wrapper = elem.obj("item"), wrapper.str("__typename") == "TrackResponseWrapper",
+                  let d = wrapper.obj("data"), d.str("__typename") == "Track" else { continue }
+            result.tracks.append(parseTrack(d, uriOverride: wrapper.str("_uri") ?? wrapper.str("uri")))
+        }
+        result.tracksTotal = tracksSection?.int("totalCount") ?? 0
+        for w in data.obj("albumsV2")?.objects("items") ?? [] {
+            guard w.str("__typename") == "AlbumResponseWrapper", let d = w.obj("data"), d.str("__typename") == "Album" else { continue }
+            let uri = d.str("uri") ?? ""
+            result.albums.append(SpotifyAlbum(
+                id: uri.substringAfterLast(":"), name: d.str("name") ?? "", albumType: d.str("type")?.lowercased(),
+                artists: (d.obj("artists")?.objects("items") ?? []).compactMap(parseSimpleArtist),
+                images: parseImages(d.obj("coverArt")?.arr("sources")),
+                releaseDate: d.obj("date")?.int("year").map(String.init), uri: uri.isEmpty ? nil : uri))
+        }
+        for w in data.obj("artists")?.objects("items") ?? [] {
+            guard w.str("__typename") == "ArtistResponseWrapper", let d = w.obj("data"), d.str("__typename") == "Artist" else { continue }
+            let uri = d.str("uri") ?? ""
+            result.artists.append(SpotifyArtist(
+                id: uri.substringAfterLast(":"), name: d.obj("profile")?.str("name") ?? "",
+                images: parseImages(d.obj("visuals")?.obj("avatarImage")?.arr("sources")), uri: uri.isEmpty ? nil : uri))
+        }
+        for w in data.obj("playlists")?.objects("items") ?? [] {
+            guard w.str("__typename") == "PlaylistResponseWrapper", let d = w.obj("data"), d.str("__typename") == "Playlist" else { continue }
+            let uri = d.str("uri") ?? ""
+            let owner = d.obj("ownerV2")?.obj("data")
+            let ownerUri = owner?.str("uri") ?? ""
+            result.playlists.append(SpotifyPlaylist(
+                id: uri.substringAfterLast(":"), name: d.str("name") ?? "", description: d.str("description"),
+                images: parsePlaylistImages(d.obj("images")),
+                owner: SpotifyPlaylistOwner(id: ownerUri.substringAfterLast(":"), displayName: owner?.str("name"),
+                                            uri: ownerUri.isEmpty ? nil : ownerUri),
+                uri: uri.isEmpty ? nil : uri))
+        }
+        return result
+    }
+
+    // MARK: - Один трек (REST: tracks/<id>)
+
+    func track(_ trackId: String) async throws -> SpotifyTrack {
+        let data = try await restGet("tracks/\(trackId)")
+        guard let o = JSON.object(data) else { throw SpotifyError(statusCode: 500, message: "Invalid track response") }
+        func images(_ list: [JSONObject]) -> [SpotifyImage] {
+            list.compactMap { i in i.str("url").map { SpotifyImage(url: $0, height: i.int("height"), width: i.int("width")) } }
+        }
+        let al = o.obj("album")
+        let album = al.map {
+            SpotifySimpleAlbum(id: $0.str("id") ?? "", name: $0.str("name") ?? "", images: images($0.objects("images")),
+                               releaseDate: $0.str("release_date"), albumType: $0.str("album_type"), artists: [], uri: $0.str("uri"))
+        }
+        return SpotifyTrack(
+            id: o.str("id") ?? trackId, name: o.str("name") ?? "",
+            artists: o.objects("artists").map { SpotifySimpleArtist(id: $0.str("id"), name: $0.str("name") ?? "", uri: $0.str("uri")) },
+            album: album, durationMs: o.int("duration_ms") ?? 0, explicit: o.bool("explicit") ?? false, isLocal: false,
+            trackNumber: o.int("track_number"), uri: o.str("uri"), popularity: o.int("popularity"),
+            isrc: o.obj("external_ids")?.str("isrc"), playCount: nil)
+    }
+
+    // MARK: - Лайки (GQL: addToLibrary / removeFromLibrary; REST me/tracks — запасной путь)
+
+    func addToLibrary(_ uris: [String]) async throws {
+        _ = try await graphqlPost("addToLibrary", variables: ["libraryItemUris": uris])
+    }
+
+    func removeFromLibrary(_ uris: [String]) async throws {
+        _ = try await graphqlPost("removeFromLibrary", variables: ["libraryItemUris": uris])
+    }
+
+    /// Токен веб-плеера на многих аккаунтах не принимает запись через публичный REST, поэтому сначала мутация веб-плеера.
+    func saveTrack(_ trackId: String) async throws {
+        do {
+            try await addToLibrary(["spotify:track:\(trackId)"])
+        } catch {
+            try await restWrite("PUT", "me/tracks?ids=\(trackId)")
+        }
+    }
+
+    func removeTrack(_ trackId: String) async throws {
+        do {
+            try await removeFromLibrary(["spotify:track:\(trackId)"])
+        } catch {
+            try await restWrite("DELETE", "me/tracks?ids=\(trackId)")
+        }
+    }
+
+    func setFollowingArtist(_ artistId: String, follow: Bool) async throws {
+        try await restWrite(follow ? "PUT" : "DELETE", "me/following?type=artist&ids=\(artistId)")
+    }
+
+    func isFollowingArtist(_ artistId: String) async throws -> Bool {
+        let data = try await restGet("me/following/contains?type=artist&ids=\(artistId)")
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [Bool])?.first ?? false
+    }
+
+    func setAlbumSaved(_ albumId: String, saved: Bool) async throws {
+        try await restWrite(saved ? "PUT" : "DELETE", "me/albums?ids=\(albumId)")
+    }
+
+    func isAlbumSaved(_ albumId: String) async throws -> Bool {
+        let data = try await restGet("me/albums/contains?ids=\(albumId)")
+        return ((try? JSONSerialization.jsonObject(with: data)) as? [Bool])?.first ?? false
+    }
+
+    /// Какие из треков лежат в «Любимых треках» аккаунта (по 50 за запрос).
+    func tracksSaved(_ trackIds: [String]) async throws -> [String: Bool] {
+        var result: [String: Bool] = [:]
+        var unique: [String] = []
+        for id in trackIds where !unique.contains(id) { unique.append(id) }
+        var start = 0
+        while start < unique.count {
+            let chunk = Array(unique[start..<min(start + 50, unique.count)])
+            start += 50
+            let data = try await restGet("me/tracks/contains?ids=\(chunk.joined(separator: ","))")
+            let flags = ((try? JSONSerialization.jsonObject(with: data)) as? [Bool]) ?? []
+            for (i, id) in chunk.enumerated() { result[id] = i < flags.count ? flags[i] : false }
+        }
+        return result
+    }
+
+    private func restWrite(_ method: String, _ endpoint: String) async throws {
+        guard let token = await tokens.token() else { throw SpotifyError(statusCode: 401, message: "Not authenticated") }
+        guard let url = URL(string: Self.restBase + endpoint) else { throw SpotifyError(statusCode: 400, message: "Bad endpoint") }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.timeoutInterval = 30
+        for (k, v) in baseHeaders(token: token) { request.setValue(v, forHTTPHeaderField: k) }
+        let r = try await HTTP.send(request)
+        if !r.isSuccess { throw SpotifyError(statusCode: r.status, message: "Spotify API error \(r.status)") }
+    }
+
+    // MARK: - Главная (GQL: home) — персональная лента: миксы, «Радар новинок», «Вернуться к…» и т. д.
+
+    func home(sectionItemsLimit: Int = 10, language: String? = nil) async throws -> SpotifyHomeFeed {
+        let vars: JSONObject = [
+            "homeEndUserIntegration": "INTEGRATION_WEB_PLAYER", "timeZone": TimeZone.current.identifier, "sp_t": "", "facet": "",
+            "sectionItemsLimit": sectionItemsLimit, "includeEpisodeContentRatingsV2": false,
+        ]
+        let response = try await graphqlPost("home", variables: vars, language: language)
+        guard let home = response.obj("data")?.obj("home") else { throw SpotifyError(statusCode: 500, message: "Invalid home response") }
+        var feed = SpotifyHomeFeed(greeting: home.obj("greeting")?.str("transformedLabel"), sections: [])
+        for section in home.obj("sectionContainer")?.obj("sections")?.objects("items") ?? [] {
+            guard let data = section.obj("data"), let typename = data.str("__typename"),
+                  let raw = section.obj("sectionItems")?.objects("items") else { continue }
+            let t = data.obj("title")
+            let items = raw.compactMap(parseHomeItem)
+            if items.isEmpty { continue }
+            feed.sections.append(SpotifyHomeSection(
+                uri: section.str("uri") ?? "", title: t?.str("transformedLabel") ?? t?.str("translatedBaseText") ?? t?.str("text"),
+                typename: typename, items: items))
+        }
+        return feed
+    }
+
+    private func parseHomeItem(_ item: JSONObject) -> SpotifyHomeItem? {
+        guard let content = item.obj("content"), let wrapper = content.str("__typename"),
+              let data = content.obj("data"), let uri = data.str("uri") else { return nil }
+        let id = uri.substringAfterLast(":")
+        switch wrapper {
+        case "PlaylistResponseWrapper":
+            let image = data.obj("images")?.objects("items").first?.objects("sources").first?.str("url")
+            return SpotifyHomeItem(kind: .playlist, id: id, uri: uri, name: data.str("name") ?? "",
+                                   subtitle: data.str("description") ?? data.obj("ownerV2")?.obj("data")?.str("name"), imageUrl: image)
+        case "AlbumResponseWrapper":
+            let artists = (data.obj("artists")?.objects("items") ?? []).compactMap(parseSimpleArtist).map { $0.name }
+            return SpotifyHomeItem(kind: .album, id: id, uri: uri, name: data.str("name") ?? "",
+                                   subtitle: artists.joined(separator: ", "),
+                                   imageUrl: data.obj("coverArt")?.objects("sources").first?.str("url"))
+        case "ArtistResponseWrapper":
+            return SpotifyHomeItem(kind: .artist, id: id, uri: uri, name: data.obj("profile")?.str("name") ?? "", subtitle: nil,
+                                   imageUrl: data.obj("visuals")?.obj("avatarImage")?.objects("sources").first?.str("url"))
+        default:
+            return nil
+        }
+    }
 }

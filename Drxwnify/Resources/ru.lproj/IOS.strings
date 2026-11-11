@@ -29,3 +29,17 @@
 "ios_playlist" = "Плейлист";
 "ios_album" = "Альбом";
 "ios_artist" = "Исполнитель";
+"ios_audio_not_found" = "Звук для трека не найден";
+"ios_audio_no_sources" = "Все источники звука выключены";
+"ios_audio_stream_failed" = "Не удалось воспроизвести поток";
+"ios_searching_audio" = "Ищу звук…";
+"ios_queue_empty" = "Очередь пуста";
+"ios_removed_from_queue" = "«%@» убрана из очереди";
+"ios_clear_queue" = "Очистить очередь";
+"ios_timer_left" = "Осталось %@";
+"ios_timer_cancel" = "Выключить таймер";
+"ios_lock_queue" = "Закрепить очередь";
+"ios_unlock_queue" = "Разрешить правку очереди";
+"ios_vk_save_token" = "Сохранить токен";
+"ios_vk_bad_token" = "Не похоже на токен VK или адрес с access_token";
+"ios_vk_logout" = "Выйти из VK";

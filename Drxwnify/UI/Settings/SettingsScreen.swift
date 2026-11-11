@@ -34,8 +34,27 @@ private struct SettingsContent: View {
                         Label(L("spotify_login"), systemImage: "music.note")
                     }
                 }
+                if (settings.get(PK.vkAccessToken) ?? "").isEmpty {
+                    NavigationLink(destination: VkLoginScreen()) {
+                        Label(L("vk_login"), systemImage: "person.crop.circle.badge.plus")
+                    }
+                } else {
+                    HStack {
+                        Label(L("vk_music"), systemImage: "music.note.house")
+                        Spacer()
+                        Text(L("vk_connected")).foregroundColor(.secondary).lineLimit(1)
+                    }
+                    Button(L("ios_vk_logout")) {
+                        settings.set(PK.vkAccessToken, nil)
+                        settings.set(PK.vkUserId, nil)
+                    }
+                    .foregroundColor(.red)
+                }
             }
             Section {
+                NavigationLink(destination: MusicSourcesScreen()) {
+                    Label(L("music_sources"), systemImage: "antenna.radiowaves.left.and.right")
+                }
                 NavigationLink(destination: BackupScreen()) {
                     Label(L("backup_restore"), systemImage: "externaldrive")
                 }

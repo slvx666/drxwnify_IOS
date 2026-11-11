@@ -15,9 +15,16 @@ SOURCES=(
   Drxwnify/Support/JSON.swift
   Drxwnify/Spotify/SpotifyModels.swift
   Drxwnify/Spotify/SpotifyAuth.swift
+  Drxwnify/Resolver/AudioModels.swift
+  Drxwnify/Resolver/FuzzyTrackMatch.swift
+  Drxwnify/Resolver/ParallelAudioResolver.swift
+  Drxwnify/Support/AppLinks.swift
+  Drxwnify/Resolver/Providers/YouTubeProvider.swift
+  Drxwnify/Resolver/Providers/BandcampProvider.swift
+  Drxwnify/Resolver/Providers/AudiusProvider.swift
 )
 
 python3 scripts/test_fixtures.py make Drxwnify/Resources/Schema/song_v40.sql "$T/android.backup"
-swiftc -O -swift-version 5 -o "$T/host-tests" "${SOURCES[@]}" DrxwnifyTests/Host/*.swift 2>&1 | grep -E "error|warning: unre" || true
-"$T/host-tests" "$T/android.backup" "$T/ios.backup"
+swiftc -Onone -swift-version 5 -o "$T/host-tests" "${SOURCES[@]}" DrxwnifyTests/Host/*.swift 2>&1 | grep -E "error|warning: unre" || true
+LIVE="${LIVE:-1}" "$T/host-tests" "$T/android.backup" "$T/ios.backup"
 python3 scripts/test_fixtures.py verify "$T/ios.backup"

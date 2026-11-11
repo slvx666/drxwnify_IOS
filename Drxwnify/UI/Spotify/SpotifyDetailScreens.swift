@@ -18,8 +18,9 @@ struct SpotifyPlaylistScreen: View {
                 subtitle: info.value?.owner?.displayName,
                 detail: tracks.total > 0 ? LPlural("n_song", tracks.total) : nil
             )
-            ForEach(Array(tracks.items.enumerated()), id: \.offset) { _, item in
-                SpotifyTrackRow(track: item.track)
+            PlayShuffleRow(tracks: tracks.items.map { $0.track }, queueTitle: info.value?.name ?? name)
+            ForEach(Array(tracks.items.enumerated()), id: \.offset) { i, item in
+                SpotifyTrackRow(track: item.track, context: tracks.items.map { $0.track }, index: i, queueTitle: info.value?.name ?? name)
             }
             LoadStatusRow(isLoading: tracks.isLoading, error: tracks.error, retry: { load(force: true) })
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
@@ -54,8 +55,9 @@ struct SpotifyLikedSongsScreen: View {
                     .foregroundColor(.secondary)
                     .listRowBackground(Color.clear)
             }
-            ForEach(Array(tracks.items.enumerated()), id: \.offset) { _, item in
-                SpotifyTrackRow(track: item.track)
+            PlayShuffleRow(tracks: tracks.items.map { $0.track }, queueTitle: L("liked_songs"))
+            ForEach(Array(tracks.items.enumerated()), id: \.offset) { i, item in
+                SpotifyTrackRow(track: item.track, context: tracks.items.map { $0.track }, index: i, queueTitle: L("liked_songs"))
             }
             LoadStatusRow(isLoading: tracks.isLoading, error: tracks.error, retry: { load(force: true) })
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
@@ -64,6 +66,7 @@ struct SpotifyLikedSongsScreen: View {
         .navigationTitle(L("liked_songs"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { load(force: false) }
+        .onChange(of: tracks.items.count) { _ in env.likes.markLiked(tracks.items.map { $0.track.id }) }
     }
 
     private func load(force: Bool) {
@@ -98,8 +101,10 @@ struct SpotifyAlbumScreen: View {
                         Label(artist.name, systemImage: "person.fill")
                     }
                 }
+                PlayShuffleRow(tracks: album.tracks, queueTitle: album.name, album: album.simple)
                 ForEach(Array(album.tracks.enumerated()), id: \.offset) { index, track in
-                    SpotifyTrackRow(track: track, number: index + 1)
+                    SpotifyTrackRow(track: track, number: index + 1, context: album.tracks, index: index,
+                                    queueTitle: album.name, album: album.simple)
                 }
             }
             if case .failed(let message) = loader.state {
@@ -112,6 +117,13 @@ struct SpotifyAlbumScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(loader.value?.name ?? name)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarItems(trailing: HStack(spacing: 14) {
+            RemoteToggleButton(onSymbol: "checkmark.circle.fill", offSymbol: "plus.circle",
+                               onLabel: L("remove_from_library"), offLabel: L("add_to_library"),
+                               read: { [api = env.spotify, id = albumId] in try await api.isAlbumSaved(id) },
+                               write: { [api = env.spotify, id = albumId] on in try await api.setAlbumSaved(id, saved: on) })
+            ShareLinkButton(text: AppLinks.shareText(.album, id: albumId, title: loader.value?.name ?? name, by: loader.value?.artistNames))
+        })
         .onAppear { load(force: false) }
     }
 
@@ -150,7 +162,9 @@ struct SpotifyArtistScreen: View {
                 )
                 if !page.top.isEmpty {
                     Section(header: Text(L("artist_top_tracks"))) {
-                        ForEach(page.top.prefix(10)) { SpotifyTrackRow(track: $0) }
+                        ForEach(Array(page.top.prefix(10).enumerated()), id: \.offset) { i, t in
+                            SpotifyTrackRow(track: t, context: Array(page.top.prefix(10)), index: i, queueTitle: page.artist.name)
+                        }
                     }
                 }
                 albumShelf(L("albums"), page.discography.albums)
@@ -176,6 +190,13 @@ struct SpotifyArtistScreen: View {
         .listStyle(PlainListStyle())
         .navigationTitle(loader.value?.artist.name ?? name)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarItems(trailing: HStack(spacing: 14) {
+            RemoteToggleButton(onSymbol: "person.crop.circle.badge.checkmark", offSymbol: "person.crop.circle.badge.plus",
+                               onLabel: L("subscribed"), offLabel: L("subscribe"),
+                               read: { [api = env.spotify, id = artistId] in try await api.isFollowingArtist(id) },
+                               write: { [api = env.spotify, id = artistId] on in try await api.setFollowingArtist(id, follow: on) })
+            ShareLinkButton(text: AppLinks.shareText(.artist, id: artistId, title: loader.value?.artist.name ?? name, by: nil))
+        })
         .onAppear { load(force: false) }
     }
 

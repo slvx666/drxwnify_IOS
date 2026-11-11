@@ -31,6 +31,8 @@ do {
 }
 
 testSpotifyAuth()
+testResolver()
+testProvidersLive()
 
 print(failures == 0 ? "ALL TESTS PASSED" : "FAILED: \(failures)")
 exit(failures == 0 ? 0 : 1)
