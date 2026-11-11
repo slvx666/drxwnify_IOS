@@ -42,6 +42,8 @@ private struct HomeContent: View {
         )
         .onAppear { model.load(env) }
         .onChange(of: settings.get(PK.spotifySpDc) ?? "") { _ in model.load(env, force: true) }
+        // Восстановили копию (база заменена) — главная собирается заново, а не через 15 минут.
+        .onReceive(env.database.$generation.dropFirst()) { _ in model.load(env, force: true) }
     }
 
     private var isEmpty: Bool {

@@ -178,3 +178,5 @@
 "ios_millions_short" = "M";
 "ios_thousands_short" = "K";
 "ios_link_not_recognized" = "Link not recognized";
+"ios_import_where" = "Playlists appear in Library → Playlists.";
+"ios_soundcloud_import_desc" = "A profile’s likes and playlists by link";

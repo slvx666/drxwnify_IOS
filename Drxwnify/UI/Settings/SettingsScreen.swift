@@ -311,6 +311,10 @@ struct IntegrationsScreen: View {
                     NavigationLink(destination: VkLoginScreen()) { Label(L("vk_login"), systemImage: "person.crop.circle.badge.plus") }
                 }
             }
+            Section(header: Text("SoundCloud")) {
+                settingsLink(L("soundcloud_import"), "cloud", SoundCloudImportScreen(), subtitle: L("ios_soundcloud_import_desc"))
+                settingsLink(L("import_playlist"), "square.and.arrow.down.on.square", ImportPlaylistScreen())
+            }
             Section(header: Text("Last.fm")) {
                 settingsLink("Last.fm", "dot.radiowaves.up.forward", LastFMSettingsScreen(settings: settings),
                              subtitle: settings.get(PK.lastfmUsername) ?? L("ios_lastfm_genres_desc"))

@@ -178,3 +178,5 @@
 "ios_millions_short" = "млн";
 "ios_thousands_short" = "тыс.";
 "ios_link_not_recognized" = "Ссылка не распознана";
+"ios_import_where" = "Плейлисты появятся в «Библиотеке» → «Плейлисты».";
+"ios_soundcloud_import_desc" = "Лайки и плейлисты профиля по ссылке";

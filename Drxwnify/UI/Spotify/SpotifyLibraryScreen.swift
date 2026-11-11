@@ -41,6 +41,7 @@ private struct SpotifyLibraryContent: View {
     @State private var summary = LibraryStore.Summary()
     @State private var creating = false
     @State private var searching = false
+    @State private var importing = false
     @State private var query = ""
     @State private var newName = ""
     /// Сетка 3 в ряд или список (LIB-002), как `spotify_library_grid` на Android.
@@ -219,6 +220,8 @@ private struct SpotifyLibraryContent: View {
                 .listRowBackground(Color.clear)
             toolsRow
                 .listRowBackground(Color.clear)
+            NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }
+                .frame(height: 0).opacity(0).listRowBackground(Color.clear)
             if searching {
                 HStack {
                     Image(systemName: "magnifyingglass").foregroundColor(.secondary)
@@ -330,6 +333,7 @@ private struct SpotifyLibraryContent: View {
                 }
                 Divider()
                 Button(action: { creating = true }) { Label(L("create_playlist"), systemImage: "plus") }
+                Button(action: { importing = true }) { Label(L("import_playlist"), systemImage: "square.and.arrow.down.on.square") }
                 Button(action: { reload(force: true) }) { Label(L("refetch"), systemImage: "arrow.clockwise") }
             } label: {
                 HStack(spacing: 4) {

@@ -287,3 +287,119 @@ final class SoundCloudProvider: AudioProvider {
         return nil
     }
 }
+
+// MARK: - Импорт профиля и плейлистов (Android `SoundCloudAudioProvider.importProfile`)
+
+extension SoundCloudProvider {
+    struct ImportSet: Identifiable, Hashable {
+        var id: String
+        var title: String
+        var url: String
+        var trackCount: Int
+    }
+
+    struct ImportProfile {
+        var userId: String
+        var name: String
+        var avatar: String?
+        var url: String
+        var likes: Int
+        var sets: [ImportSet]
+    }
+
+    private func apiJSON(_ url: String) async -> JSONObject? {
+        (try? await withClientId { cid -> JSONObject? in
+            let full = self.query(url, [("client_id", cid)])
+            guard let body = try await self.get(full) else { return nil }
+            return JSON.object(body)
+        }) ?? nil
+    }
+
+    private func resolve(_ link: String) async -> JSONObject? {
+        let clean = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = clean.hasPrefix("http") ? clean : "https://" + clean
+        return await apiJSON(query("https://api-v2.soundcloud.com/resolve", [("url", url)]))
+    }
+
+    /// Профиль по ссылке: имя, сколько лайков, открытые плейлисты.
+    func importProfile(_ link: String) async -> ImportProfile? {
+        guard let user = await resolve(link), user.str("kind") == "user", let id = user.str("id") else { return nil }
+        let lists = await apiJSON("https://api-v2.soundcloud.com/users/\(id)/playlists?limit=50")
+        let sets = (lists?.objects("collection") ?? []).compactMap { p -> ImportSet? in
+            guard let pid = p.str("id"), let title = p.str("title") else { return nil }
+            return ImportSet(id: pid, title: title, url: p.str("permalink_url") ?? "", trackCount: p.int("track_count") ?? 0)
+        }
+        return ImportProfile(userId: id, name: user.str("username") ?? "SoundCloud", avatar: user.str("avatar_url"),
+                             url: user.str("permalink_url") ?? link,
+                             likes: user.int("public_favorites_count") ?? user.int("likes_count") ?? 0, sets: sets)
+    }
+
+    /// Лайки профиля (до 1000).
+    func importLikes(_ userId: String) async -> [PlaylistImporter.Item] {
+        var out: [PlaylistImporter.Item] = []
+        var next: String? = "https://api-v2.soundcloud.com/users/\(userId)/track_likes?limit=200&linked_partitioning=1"
+        while let url = next, out.count < 1000 {
+            guard let page = await apiJSON(url) else { break }
+            for o in page.objects("collection") {
+                if let track = o.obj("track"), let t = self.item(track) { out.append(t) }
+            }
+            next = page.str("next_href")
+        }
+        return out
+    }
+
+    /// Треки плейлиста по id (неполные дозапрашиваются пачками по 50).
+    func importSet(_ setId: String) async -> [PlaylistImporter.Item] {
+        guard let p = await apiJSON("https://api-v2.soundcloud.com/playlists/\(setId)?representation=full") else { return [] }
+        return await setItems(p)
+    }
+
+    /// Ссылка на плейлист SoundCloud или профиль (тогда — его лайки).
+    func importLink(_ link: String) async -> [PlaylistImporter.Item] {
+        guard let o = await resolve(link) else { return [] }
+        switch o.str("kind") {
+        case "playlist", "system-playlist": return await setItems(o)
+        case "user":
+            guard let id = o.str("id") else { return [] }
+            return await importLikes(id)
+        case "track": return item(o).map { [$0] } ?? []
+        default: return []
+        }
+    }
+
+    private func setItems(_ p: JSONObject) async -> [PlaylistImporter.Item] {
+        let tracks = p.objects("tracks")
+        var full: [String: PlaylistImporter.Item] = [:]
+        var missing: [String] = []
+        for t in tracks {
+            guard let id = t.str("id") else { continue }
+            if let it = item(t) { full[id] = it } else { missing.append(id) }
+        }
+        var i = 0
+        while i < missing.count {
+            let chunk = missing[i..<min(i + 50, missing.count)].joined(separator: ",")
+            if let arr = (try? await withClientId { cid -> [JSONObject]? in
+                guard let body = try await self.get(self.query("https://api-v2.soundcloud.com/tracks", [("ids", chunk), ("client_id", cid)])) else { return nil }
+                return JSON.array(Data(body.utf8)) as? [JSONObject]
+            }) ?? nil {
+                for t in arr { if let id = t.str("id"), let it = item(t) { full[id] = it } }
+            }
+            i += 50
+        }
+        return tracks.compactMap { $0.str("id").flatMap { full[$0] } }
+    }
+
+    private func item(_ o: JSONObject) -> PlaylistImporter.Item? {
+        guard let title = o.str("title"), !title.isEmpty else { return nil }
+        let publisher = o.obj("publisher_metadata")?.str("artist") ?? ""
+        let uploader = o.obj("user")?.str("username") ?? ""
+        var artist = publisher.trimmingCharacters(in: .whitespaces).isEmpty ? uploader : publisher
+        var name = title
+        // «Артист - Трек» в названии загрузки — частый случай.
+        if publisher.isEmpty, let r = title.range(of: " - ") {
+            artist = String(title[..<r.lowerBound])
+            name = String(title[r.upperBound...])
+        }
+        return PlaylistImporter.Item(artist: artist, title: name, durationMs: o.int("full_duration") ?? o.int("duration") ?? 0)
+    }
+}

@@ -96,6 +96,8 @@ final class AudioFallbackEngine {
     }
 
     private func provider(_ id: AudioProviderId) -> AudioProvider? { all.first { $0.id == id } }
+    /// SoundCloud для импорта профиля и плейлистов.
+    var soundCloud: SoundCloudProvider? { all.first { $0 is SoundCloudProvider } as? SoundCloudProvider }
 
     private func usable(_ m: ProviderMatch, _ q: AudioQuery, excluding: Set<AudioProviderId>) async -> Bool {
         if excluding.contains(m.provider) || q.excludedTrackIds.contains(m.trackId) || !isEnabled(m.provider) { return false }
