@@ -91,6 +91,7 @@ struct SpotifyArtist: Codable, Hashable, Identifiable {
     var images: [SpotifyImage] = []
     var uri: String?
     var monthlyListeners: Int?
+    var followers: Int?
 }
 
 struct SpotifyPlaylistOwner: Codable, Hashable {

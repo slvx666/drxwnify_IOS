@@ -32,9 +32,6 @@ struct SpotifyTrackRow: View {
     private var subtitle: String {
         var parts = [track.artistNames]
         if track.durationMs > 0 { parts.append(formatDuration(ms: track.durationMs)) }
-        if showPlayCount, let n = track.playCount, n > 0 {
-            parts.append(NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal))
-        }
         return parts.joined(separator: " • ")
     }
 
@@ -73,6 +70,12 @@ struct SpotifyTrackRow: View {
                     }
                 }
                 Spacer(minLength: 4)
+                if showPlayCount, let n = track.playCount, n > 0 {
+                    // Как на Android: прослушивания Spotify справа, целым числом с разделителями.
+                    Text(NumberFormatter.localizedString(from: NSNumber(value: n), number: .decimal))
+                        .font(.caption.monospacedDigit()).foregroundColor(.secondary).lineLimit(1)
+                        .fixedSize()
+                }
                 TrackMoreButton(track: Track(track, album: album))
             }
             .contentShape(Rectangle())

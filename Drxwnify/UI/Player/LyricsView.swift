@@ -13,7 +13,20 @@ struct LyricsView: View {
     @State private var offsetMs = 0
     @State private var copied = false
 
-    private var position: Double { player.position + Double(offsetMs) / 1000 }
+    /// Точная позиция: опрос плеера 10 раз в секунду, пока текст на экране (позиция плеера идёт шагом 0,5 с).
+    @State private var livePosition: Double = 0
+    private let clock = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    private var position: Double { livePosition + Double(offsetMs) / 1000 }
+    private var settings: TypedStore { env.prefs.settings }
+    private var align: HorizontalAlignment {
+        switch settings.get(PK.lyricsTextPosition) ?? "CENTER" {
+        case "LEFT": return .leading
+        case "RIGHT": return .trailing
+        default: return .center
+        }
+    }
+    private var textAlign: TextAlignment { align == .leading ? .leading : (align == .trailing ? .trailing : .center) }
+    private var frameAlign: Alignment { align == .leading ? .leading : (align == .trailing ? .trailing : .center) }
 
     private var currentLine: Int? {
         guard let l = lyrics, l.isSynced else { return nil }
@@ -28,12 +41,17 @@ struct LyricsView: View {
             } else if let l = lyrics {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: UIMetrics.isShort ? 10 : 14) {
+                        LazyVStack(alignment: align, spacing: UIMetrics.isShort ? 10 : 14) {
                             ForEach(l.lines) { line in
                                 lineView(line, synced: l.isSynced)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .multilineTextAlignment(textAlign)
+                                    .frame(maxWidth: .infinity, alignment: frameAlign)
                                     .contentShape(Rectangle())
-                                    .onTapGesture { if let t = line.time { player.seek(to: max(0, t - Double(offsetMs) / 1000)) } }
+                                    .onTapGesture {
+                                        guard settings.get(PK.lyricsClick) ?? true, let t = line.time else { return }
+                                        player.seek(to: max(0, t - Double(offsetMs) / 1000))
+                                        livePosition = t - Double(offsetMs) / 1000
+                                    }
                                     .id(line.id)
                             }
                             Text(L("lyrics_from_provider", l.provider)).font(.caption).foregroundColor(.secondary).padding(.top, 8)
@@ -41,7 +59,7 @@ struct LyricsView: View {
                         .padding(.vertical, 24)
                     }
                     .onChange(of: currentLine) { id in
-                        guard let id = id else { return }
+                        guard let id = id, settings.get(PK.lyricsScrollKey) ?? true else { return }
                         withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(id, anchor: .center) }
                     }
                     .onAppear {
@@ -57,12 +75,20 @@ struct LyricsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onAppear { load(refresh: false) }
+        .onAppear {
+            livePosition = player.exactPosition
+            load(refresh: false)
+        }
+        .onReceive(clock) { _ in
+            let p = player.exactPosition
+            if abs(p - livePosition) > 0.04 { livePosition = p }
+        }
         .onChange(of: player.current?.id) { _ in load(refresh: false) }
     }
 
     @ViewBuilder private func lineView(_ line: LyricLine, synced: Bool) -> some View {
-        let font: Font = line.background ? .body.weight(.semibold) : (UIMetrics.isShort ? .headline : .title3.weight(.bold))
+        let size = CGFloat(settings.get(PK.lyricsTextSize) ?? 24) * (UIMetrics.isShort ? 0.72 : 0.84)
+        let font: Font = line.background ? .system(size: size * 0.75, weight: .semibold) : .system(size: size, weight: .bold)
         if synced, !line.words.isEmpty, line.id == currentLine || isCurrentBackground(line) {
             karaoke(line).font(font)
         } else {

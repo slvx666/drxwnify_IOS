@@ -55,6 +55,9 @@ struct TrackRow: View {
     var index = 0
     var queueTitle: String?
     var subtitle: String?
+    /// «Удалить из плейлиста / истории» в меню «⋮».
+    var removeTitle: String? = nil
+    var onRemove: (() -> Void)? = nil
 
     @EnvironmentObject private var player: PlayerController
     @EnvironmentObject private var likes: LikeManager
@@ -79,7 +82,7 @@ struct TrackRow: View {
                     }
                 }
                 Spacer(minLength: 4)
-                TrackMoreButton(track: track)
+                TrackMoreButton(track: track, removeTitle: removeTitle, onRemove: onRemove)
             }
             .contentShape(Rectangle())
         }

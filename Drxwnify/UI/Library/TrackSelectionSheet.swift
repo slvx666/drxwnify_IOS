@@ -14,6 +14,7 @@ struct TrackSelectionSheet: View {
     @State private var filesToSave: [URL]?
     @State private var notice: String?
     @State private var sending: [Track]?
+    @State private var adding: TrackBatch?
 
     private var picked: [Track] { selected.sorted().compactMap { tracks.indices.contains($0) ? tracks[$0] : nil } }
     private var allBlocked: Bool { !picked.isEmpty && picked.allSatisfy(blocked.isBlocked) }
@@ -62,7 +63,10 @@ struct TrackSelectionSheet: View {
             ExportToFiles(urls: filesToSave ?? [])
         })
         .background(EmptyView().sheet(isPresented: Binding(get: { sending != nil }, set: { if !$0 { sending = nil } })) {
-            SendTracksSheet(tracks: sending ?? []).environmentObject(env)
+            SendTracksSheet(tracks: sending ?? []).environmentObject(env).environmentObject(downloads)
+        })
+        .background(EmptyView().sheet(item: $adding) { batch in
+            AddToPlaylistSheet(batch: batch).environmentObject(env).environmentObject(downloads)
         })
         .alert(isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Alert(title: Text(notice ?? ""))
@@ -97,11 +101,7 @@ struct TrackSelectionSheet: View {
 
     private var actionBar: some View {
         HStack(spacing: 0) {
-            action(L("ios_to_playlist"), "text.badge.plus") {
-                let t = picked
-                presentation.wrappedValue.dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { env.addToPlaylist = TrackBatch(tracks: t) }
-            }
+            action(L("ios_to_playlist"), "text.badge.plus") { adding = TrackBatch(tracks: picked) }
             action(L("add_to_queue"), "text.append") { player.addToQueue(picked); presentation.wrappedValue.dismiss() }
             action(L("action_download"), "arrow.down.to.line") { downloads.download(picked); presentation.wrappedValue.dismiss() }
             action(L(allBlocked ? "ios_unblock" : "ios_block"), allBlocked ? "checkmark.circle" : "nosign") {
@@ -118,9 +118,10 @@ struct TrackSelectionSheet: View {
         Button(action: run) {
             VStack(spacing: 4) {
                 Image(systemName: symbol).font(.system(size: 18))
-                Text(title).font(.caption2).lineLimit(1).minimumScaleFactor(0.7)
+                Text(title).font(.system(size: 10)).lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.8)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: 52)
         }
         .foregroundColor(selected.isEmpty ? .secondary : .primary)
     }

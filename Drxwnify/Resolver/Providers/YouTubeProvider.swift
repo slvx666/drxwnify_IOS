@@ -123,6 +123,23 @@ final class YouTubeProvider: AudioProvider {
                              thumbnailUrl: song.thumbnail, qualityKbps: 128)
     }
 
+    /// «Версия трека»: лучшие совпадения без проверки потока (поток проверяется при выборе).
+    func versions(_ q: AudioQuery, limit: Int) async throws -> [ProviderMatch] {
+        let text = q.searchText
+        if text.trimmingCharacters(in: .whitespaces).isEmpty { return [] }
+        let songs = try await searchSongs(text)
+        let ranked = FuzzyTrackMatch.ranked(
+            artist: q.artists.joined(separator: ", "), title: q.title, durationSec: q.durationMs > 0 ? q.durationMs / 1000 : nil,
+            candidates: songs.map { FuzzyTrackMatch.Candidate(id: $0.videoId, title: $0.title, artists: $0.artists, durationSec: $0.durationSec) },
+            maxDurationGap: Self.uploadDurationTolerance)
+        return ranked.prefix(limit).compactMap { chosen in
+            guard let song = songs.first(where: { $0.videoId == chosen.id }) else { return nil }
+            return ProviderMatch(provider: id, trackId: song.videoId, title: song.title, artist: song.artists.joined(separator: ", "),
+                                 durationMs: song.durationSec.map { $0 * 1000 }, confidence: min(chosen.score, 1.0),
+                                 thumbnailUrl: song.thumbnail, qualityKbps: 128)
+        }
+    }
+
     // MARK: - Поток
 
     func stream(_ q: AudioQuery, match: ProviderMatch) async throws -> AudioStream? {

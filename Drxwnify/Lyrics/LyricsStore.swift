@@ -155,15 +155,32 @@ final class LyricsStore {
         if !refresh, let hit = cached(track.id) { return hit }
         guard let settings = settings else { return await legacy(track) }
         let names = LyricsProviders.order(settings).filter { LyricsProviders.isEnabled($0, settings) }
-        let per = Self.maxFetch / Double(max(1, names.count))
-        for name in names {
-            guard let text = await Self.withTimeout(per, { await self.fetch(name, track) }), !text.isEmpty else { continue }
-            let l = Lyrics(raw: LyricsProviders.filterCredits(text), provider: name)
-            if l.lines.isEmpty { continue }
-            save(track, l.raw, provider: name)
-            return l
+        // Все источники сразу (у каждого до 12 с): берём первый по порядку синхронный текст,
+        // а если синхронного нет ни у кого — первый по порядку обычный.
+        var results: [String: Lyrics] = [:]
+        await withTaskGroup(of: (String, Lyrics?).self) { group in
+            for name in names {
+                group.addTask {
+                    guard let text = await Self.withTimeout(12, { await self.fetch(name, track) }), !text.isEmpty else { return (name, nil) }
+                    let l = Lyrics(raw: LyricsProviders.filterCredits(text), provider: name)
+                    return (name, l.lines.isEmpty ? nil : l)
+                }
+            }
+            var answered = Set<String>()
+            for await (name, l) in group {
+                answered.insert(name)
+                if let l = l { results[name] = l }
+                // Синхронный текст есть, и все источники выше по приоритету уже ответили — дальше не ждём.
+                if let best = names.first(where: { results[$0]?.isSynced == true }),
+                   names.prefix(while: { $0 != best }).allSatisfy({ answered.contains($0) }) {
+                    group.cancelAll()
+                    break
+                }
+            }
         }
-        return nil
+        let chosen = names.compactMap { results[$0] }.first { $0.isSynced } ?? names.compactMap { results[$0] }.first
+        if let l = chosen { save(track, l.raw, provider: l.provider) }
+        return chosen
     }
 
     private func fetch(_ name: String, _ t: Track) async -> String? {

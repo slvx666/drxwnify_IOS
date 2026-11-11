@@ -59,7 +59,11 @@ struct PlayerScreen: View {
         .onChange(of: player.current == nil) { empty in
             if empty { presentation.wrappedValue.dismiss() }
         }
-        .onAppear { if let t = player.current { likes.refresh([t]) } }
+        .onAppear {
+            if let t = player.current { likes.refresh([t]) }
+            UIApplication.shared.isIdleTimerDisabled = env.prefs.settings.get(PK.keepScreenOn) ?? false
+        }
+        .onDisappear { UIApplication.shared.isIdleTimerDisabled = false }
         .onChange(of: player.current?.id) { _ in
             if let t = player.current { likes.refresh([t]) }
         }
@@ -73,8 +77,10 @@ struct PlayerScreen: View {
 
     /// Обложка или текст песни в оставшемся месте.
     @ViewBuilder private func middle(in size: CGSize) -> some View {
-        let gap: CGFloat = compact ? 8 : 16
-        let side: CGFloat = max(60, min(size.width, size.height - gap))
+        let gap: CGFloat = compact ? 20 : 24
+        // На маленьком экране обложка чуть меньше ширины, чтобы кнопкам и названию было где дышать.
+        let widthShare: CGFloat = compact ? 0.86 : 1
+        let side: CGFloat = max(60, min(size.width * widthShare, size.height - gap))
         if showLyrics {
             LyricsView().frame(width: size.width, height: size.height)
         } else {
@@ -272,7 +278,8 @@ struct PlayerScreen: View {
             if let error = player.errorText {
                 Text(error).foregroundColor(.red)
             } else if player.servingLocal, let s = player.servingStream {
-                Text("\(L("ios_downloaded")) · \(s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased()) · \(s.bitrate / 1000) kbps")
+                Text([L("ios_downloaded"), s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased(), s.bitrate > 0 ? "\(s.bitrate / 1000) kbps" : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
                     .foregroundColor(.secondary)
             } else if let m = player.serving, let s = player.servingStream {
                 qualityText(kbps: s.bitrate / 1000, codec: s.codecs.hasPrefix("mp4a") ? "AAC" : s.codecs.uppercased(), source: m.provider.displayName)
@@ -290,6 +297,8 @@ struct PlayerScreen: View {
 
     /// Как на Android: «320 kbps · MP3 · VK», битрейт зелёным от 256 kbps.
     private func qualityText(kbps: Int, codec: String, source: String) -> Text {
+        // Битрейт ещё меряется (источник его не сообщил) — пока без числа, а не «0 kbps».
+        guard kbps > 0 else { return Text("\(codec) · \(source)").foregroundColor(.secondary) }
         let rate = Text("\(kbps) kbps").foregroundColor(kbps >= 256 ? .green : .secondary)
         return rate + Text(" · \(codec) · \(source)").foregroundColor(.secondary)
     }

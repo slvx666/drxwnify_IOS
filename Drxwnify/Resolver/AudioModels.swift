@@ -106,8 +106,13 @@ protocol AudioProvider: AnyObject {
     /// nil — честное «нет»; исключение — сбой или таймаут.
     func search(_ query: AudioQuery) async throws -> ProviderMatch?
     func stream(_ query: AudioQuery, match: ProviderMatch) async throws -> AudioStream?
+    /// Несколько кандидатов для «Версии трека» (по умолчанию — только лучший).
+    func versions(_ query: AudioQuery, limit: Int) async throws -> [ProviderMatch]
 }
 
 extension AudioProvider {
     func isReady() -> Bool { true }
+    func versions(_ query: AudioQuery, limit: Int) async throws -> [ProviderMatch] {
+        (try await search(query)).map { [$0] } ?? []
+    }
 }

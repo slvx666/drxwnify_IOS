@@ -98,7 +98,7 @@ private struct LocalTrackListContent: View {
             let list: [Track]
             switch k {
             case .liked: list = lib.likedSongs()
-            case .top: list = lib.topSongs(limit: 100)
+            case .top: list = lib.topSongs(limit: Int(UserDefaults(suiteName: "ds.settings")?.string(forKey: "topSize") ?? "50") ?? 50)
             case .songs: list = lib.songs(sort: s, descending: d)
             case .downloaded: list = []
             }
@@ -179,7 +179,9 @@ private struct LocalPlaylistContent: View {
             if entries.count > 8 && !editing { LibrarySearchField(text: $query) }
             ForEach(shown) { entry in
                 TrackRow(track: entry.track, context: shown.map { $0.track },
-                         index: shown.firstIndex(of: entry) ?? 0, queueTitle: name)
+                         index: shown.firstIndex(of: entry) ?? 0, queueTitle: name,
+                         removeTitle: playlist.isEditable ? L("remove_from_playlist") : nil,
+                         onRemove: { library.remove(entry: entry.id, from: playlist.id) })
             }
             .onDelete { offsets in
                 for i in offsets where shown.indices.contains(i) { library.remove(entry: shown[i].id, from: playlist.id) }
@@ -279,7 +281,8 @@ private struct HistoryContent: View {
             ForEach(groups, id: \.0) { title, items in
                 Section(header: Text(title)) {
                     ForEach(items) { e in
-                        TrackRow(track: e.track, context: items.map { $0.track }, index: items.firstIndex(of: e) ?? 0, queueTitle: L("history"))
+                        TrackRow(track: e.track, context: items.map { $0.track }, index: items.firstIndex(of: e) ?? 0, queueTitle: L("history"),
+                                 removeTitle: L("remove_from_history"), onRemove: { library.removeHistory(e.id) })
                     }
                     .onDelete { offsets in
                         for i in offsets where items.indices.contains(i) { library.removeHistory(items[i].id) }

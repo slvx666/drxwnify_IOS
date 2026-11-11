@@ -20,9 +20,18 @@ struct DrxwnifyApp: App {
                 .environmentObject(env.friends)
                 .environmentObject(env.chats)
                 .preferredColorScheme(.dark)
-                .onAppear { BackgroundRefresh.chats = env.chats }
+                .onAppear {
+                    BackgroundRefresh.chats = env.chats
+                    env.chats.hold("foreground", true)
+                }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                    // В фоне связь держит только играющая музыка (iOS иначе всё равно усыпит приложение).
+                    env.chats.hold("foreground", false)
                     BackgroundRefresh.schedule()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                    // Открыли приложение: сообщения приходят сразу, а не только на экране «Вместе».
+                    env.chats.hold("foreground", true)
                 }
         }
     }

@@ -169,3 +169,12 @@
 "ios_lyrics_later" = "Позже на 0,5 с";
 "ios_backup_found" = "Найдено в папке Drxwnify";
 "ios_backup_found_hint" = "Копии из «Файлы» → «На iPhone» → Drxwnify. После восстановления файл удаляется.";
+
+"ios_integrations_sources_desc" = "Аккаунт для данных и откуда берётся аудио";
+"ios_lastfm_genres_desc" = "Жанры для главной и скробблинг";
+"ios_show_all" = "Показать все";
+"ios_show_less" = "Свернуть";
+"ios_artist_followers" = "%@ подписчиков";
+"ios_millions_short" = "млн";
+"ios_thousands_short" = "тыс.";
+"ios_link_not_recognized" = "Ссылка не распознана";

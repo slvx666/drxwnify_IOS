@@ -4,6 +4,9 @@ import SwiftUI
 struct TrackMenuRequest: Identifiable {
     let id = UUID()
     let track: Track
+    /// Пункт «Удалить из плейлиста / истории» в контексте экрана (как `SongMenu` на Android).
+    var removeTitle: String? = nil
+    var onRemove: (() -> Void)? = nil
 }
 
 /// Меню трека нижним листом, как `ui/menu/PlayerMenu.kt` / `SongMenu`: шапка с обложкой и лайком,
@@ -16,36 +19,45 @@ struct TrackMenuSheet: View {
     let navigate: (AppLinks.Target) -> Void
     var addToPlaylist: (() -> Void)?
     var changeVersion: (() -> Void)?
+    var removeTitle: String? = nil
+    var onRemove: (() -> Void)? = nil
 
+    @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var player: PlayerController
     @EnvironmentObject private var likes: LikeManager
     @EnvironmentObject private var downloads: DownloadManager
+    @ObservedObject private var blocked = BlockedTracks.shared
     @Environment(\.presentationMode) private var presentation
-    @State private var shareItems: [Any]?
+    @State private var sending = false
     @State private var showInfo = false
+    @State private var showAudio = false
+    @State private var showVersion = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
                 Capsule().fill(Color.secondary.opacity(0.5)).frame(width: 36, height: 4).padding(.top, 8)
                 header
-                group {
-                    item(L("add_to_queue"), "text.append") { player.addToQueue([track]); close() }
-                    item(L("queue_play_next"), "text.insert") { player.playNext([track]); close() }
+                if !isCurrent {
+                    group {
+                        item(L("add_to_queue"), "text.append") { player.addToQueue([track]); close() }
+                        item(L("queue_play_next"), "text.insert") { player.playNext([track]); close() }
+                    }
                 }
                 group {
                     downloadItem
-                    item(L(isLiked ? "like_remove_spotify" : "like_add_spotify"), isLiked ? "heart.slash" : "heart") {
-                        likes.toggle(track)
-                    }
+                    item(L(likeKey), isLiked ? "heart.slash" : "heart") { likes.toggle(track) }
                     item(L("add_to_playlist"), "text.badge.plus") { close(then: addToPlaylist) }
                     item(L("track_info"), "info.circle", subtitle: L("details_desc")) { showInfo = true }
-                    item(L("share"), "arrowshape.turn.up.right") {
-                        shareItems = [AppLinks.trackLink(mediaId: track.id, title: track.title, by: track.artistNames) ?? "\(track.artistNames) — \(track.title)"]
+                    item(L("share"), "arrowshape.turn.up.right") { sending = true }
+                }
+                if isCurrent {
+                    group {
+                        item(L("add_to_queue"), "text.append") { player.addToQueue([track]); close() }
+                        item(L("queue_play_next"), "text.insert") { player.playNext([track]); close() }
                     }
-                    if downloads.fileURL(track.id) != nil {
-                        item(L("ios_send_files"), "doc.badge.arrow.up") { shareItems = downloads.exportCopies([track]) }
-                    }
+                }
+                group {
                     ForEach(track.artists.filter { !($0.id ?? "").isEmpty }, id: \.self) { a in
                         item(L("view_artist"), "person", subtitle: a.name) {
                             go(AppLinks.Target(kind: .artist, id: a.id ?? "", title: a.name, by: nil))
@@ -56,8 +68,26 @@ struct TrackMenuSheet: View {
                             go(AppLinks.Target(kind: .album, id: albumId, title: track.albumName, by: nil))
                         }
                     }
-                    if isCurrent, let change = changeVersion {
-                        item(L("track_version"), "arrow.triangle.2.circlepath", subtitle: L("track_version_desc")) { close(then: change) }
+                }
+                group {
+                    item(L("start_radio"), "dot.radiowaves.left.and.right") {
+                        player.play([track], title: L("radio"), origin: .album)
+                        close()
+                    }
+                    item(L(isBlocked ? "ios_unblock" : "ios_block"), isBlocked ? "checkmark.circle" : "nosign") {
+                        blocked.set([track], blocked: !isBlocked)
+                        close()
+                    }
+                    if let title = removeTitle, let remove = onRemove {
+                        item(title, "minus.circle") { remove(); close() }
+                    }
+                }
+                if isCurrent {
+                    group {
+                        item(L("track_version"), "arrow.triangle.2.circlepath", subtitle: L("track_version_desc")) {
+                            if let change = changeVersion { close(then: change) } else { showVersion = true }
+                        }
+                        item(L("advanced"), "slider.horizontal.3", subtitle: L("advanced_desc")) { showAudio = true }
                     }
                 }
             }
@@ -65,13 +95,27 @@ struct TrackMenuSheet: View {
             .padding(.bottom, 20)
         }
         .background(Color(.systemBackground).ignoresSafeArea())
-        .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) {
-            ShareSheet(items: shareItems ?? [])
+        .sheet(isPresented: $sending) {
+            SendTracksSheet(tracks: [track]).environmentObject(env).environmentObject(downloads)
         }
         .background(EmptyView().sheet(isPresented: $showInfo) {
             TrackInfoScreen(track: track, isCurrent: isCurrent).environmentObject(player).environmentObject(downloads)
         })
+        .background(EmptyView().sheet(isPresented: $showAudio) {
+            AudioControlSheet().environmentObject(player).modifier(MediumSheet())
+        })
+        .background(EmptyView().sheet(isPresented: $showVersion) {
+            SourcePickerScreen().environmentObject(env).environmentObject(player)
+        })
         .onAppear { likes.refresh([track]) }
+    }
+
+    private var isBlocked: Bool { blocked.isBlocked(track) }
+
+    /// «Добавить в Spotify / Яндекс Музыку» по основному аккаунту, как на Android.
+    private var likeKey: String {
+        if env.spotify.yandexIsSource { return isLiked ? "like_remove_yandex" : "like_add_yandex" }
+        return isLiked ? "like_remove_spotify" : "like_add_spotify"
     }
 
     private var isLiked: Bool { likes.isLiked(track) }
@@ -200,10 +244,12 @@ struct TrackInfoScreen: View {
 /// Кнопка «⋮» в строке трека: открывает меню трека (как на Android).
 struct TrackMoreButton: View {
     let track: Track
+    var removeTitle: String? = nil
+    var onRemove: (() -> Void)? = nil
     @EnvironmentObject private var env: AppEnvironment
 
     var body: some View {
-        Button(action: { env.trackMenu = TrackMenuRequest(track: track) }) {
+        Button(action: { env.trackMenu = TrackMenuRequest(track: track, removeTitle: removeTitle, onRemove: onRemove) }) {
             Image(systemName: "ellipsis").rotationEffect(.degrees(90))
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.secondary)
@@ -211,5 +257,33 @@ struct TrackMoreButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(BorderlessButtonStyle())
+    }
+}
+
+/// «Контроль аудио» (UI-319): скорость, и меняется ли тон вместе с ней.
+struct AudioControlSheet: View {
+    @EnvironmentObject private var player: PlayerController
+    @Environment(\.presentationMode) private var presentation
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text(L("speed")), footer: Text(String(format: "%.2fx", Double(player.playbackRate)))) {
+                    Slider(value: Binding(get: { Double(player.playbackRate) }, set: { v in player.setRate(Float((v * 20).rounded() / 20)) }),
+                           in: 0.5...2.0)
+                }
+                Section {
+                    Toggle(L("tempo_and_pitch"), isOn: Binding(get: { player.pitchFollowsRate }, set: { player.setPitchFollowsRate($0) }))
+                    Button(L("reset")) {
+                        player.setRate(1)
+                        player.setPitchFollowsRate(false)
+                    }
+                }
+            }
+            .navigationTitle(L("advanced"))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarItems(trailing: Button(L("close")) { presentation.wrappedValue.dismiss() })
+        }
+        .navigationViewStyle(StackNavigationViewStyle())
     }
 }

@@ -27,6 +27,8 @@ final class AppEnvironment: ObservableObject {
     /// Сколько открытых экранов прячут панель вкладок («Вместе», чат — как на Android).
     @Published var chromeHiders = 0
     var chromeHidden: Bool { chromeHiders > 0 }
+    /// Открыт чат: мини-плеер уходит, строка ввода стоит внизу (сообщил пользователь на 0.10.1).
+    @Published var chatOpen = false
     /// Открыть «Вместе» с главной (приглашение по ссылке, значок в шапке).
     @Published var showTogether = false
     /// Открытое меню трека (лист в `RootView`).

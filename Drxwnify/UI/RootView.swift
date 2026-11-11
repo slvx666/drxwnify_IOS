@@ -7,7 +7,14 @@ enum AppTab: Hashable {
 /// Корень: 3 вкладки, как на Android (UI-001): Главная, Поиск, Библиотека; «Вместе» — значок в шапке.
 /// Мини-плеер над навигацией (UI-051).
 struct RootView: View {
-    @State private var tab: AppTab = .home
+    /// Вкладка при запуске (`defaultOpenTab`, SET-029).
+    @State private var tab: AppTab = {
+        switch UserDefaults(suiteName: "ds.settings")?.string(forKey: "defaultOpenTab") {
+        case "EXPLORE", "SEARCH": return .search
+        case "LIBRARY": return .library
+        default: return .home
+        }
+    }()
     @State private var showPlayer = false
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var player: PlayerController
@@ -47,7 +54,9 @@ struct RootView: View {
                 TrackMenuSheet(track: req.track,
                                isCurrent: player.current?.id == req.track.id,
                                navigate: { env.linkTarget = $0 },
-                               addToPlaylist: { env.addToPlaylist = TrackBatch(tracks: [req.track]) })
+                               addToPlaylist: { env.addToPlaylist = TrackBatch(tracks: [req.track]) },
+                               removeTitle: req.removeTitle,
+                               onRemove: req.onRemove)
                     .environmentObject(env)
                     .environmentObject(player)
                     .environmentObject(env.likes)
@@ -92,10 +101,16 @@ struct RootView: View {
         } else {
             ZStack(alignment: .bottom) {
                 tabs
-                MiniPlayerView(style: .classic, showPlayer: $showPlayer)
-                    .padding(.bottom, env.chromeHidden ? 0 : Self.classicTabBarHeight)
-                    .ignoresSafeArea(.keyboard, edges: .bottom)
+                if !env.chatOpen {
+                    MiniPlayerView(style: .classic, showPlayer: $showPlayer)
+                        .padding(.bottom, env.chromeHidden ? 0 : Self.classicTabBarHeight)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            // Панель вкладок прячется системой; мини-плеер едет вслед за ней, а не прыгает.
+            .animation(.easeInOut(duration: 0.28), value: env.chromeHidden)
+            .animation(.easeInOut(duration: 0.22), value: env.chatOpen)
         }
     }
 
@@ -226,7 +241,7 @@ struct UnreadBadge: ViewModifier {
     }
 }
 
-/// Значки в шапке главной и библиотеки, как на Android: история, «Вместе» (с числом непрочитанных), настройки.
+/// Значки в шапке главной и библиотеки, как на Android: история, «Вместе» (с числом непрочитанных), интеграции, настройки.
 struct TopBarIcons: View {
     var together: Binding<Bool>?
     @EnvironmentObject private var env: AppEnvironment
@@ -234,12 +249,13 @@ struct TopBarIcons: View {
     @State private var localTogether = false
 
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: UIMetrics.isNarrow ? 12 : 16) {
             NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath") }
             NavigationLink(destination: TogetherScreen(), isActive: together ?? $localTogether) {
                 Image(systemName: "person.2")
                     .overlay(badge, alignment: .topTrailing)
             }
+            NavigationLink(destination: IntegrationsScreen(settings: env.prefs.settings)) { Image(systemName: "puzzlepiece") }
             NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape") }
         }
         .font(.system(size: 17, weight: .regular))

@@ -27,7 +27,16 @@ final class PlayerController: NSObject, ObservableObject {
     @Published private(set) var sleepTimerEnd: Date?
     @Published private(set) var sleepAtEndOfTrack = false
     @Published var queueLocked = false
+    /// Скорость и «тон вместе со скоростью» (UI-319).
+    @Published private(set) var playbackRate: Float = 1
+    @Published private(set) var pitchFollowsRate = false
 
+    /// Позиция прямо из `AVPlayer` (для пословной подсветки текста).
+    var exactPosition: Double {
+        guard currentItem != nil else { return position }
+        let t = player.currentTime().seconds
+        return t.isFinite ? t : position
+    }
     var current: Track? { currentIndex.flatMap { queue.indices.contains($0) ? queue[$0] : nil } }
     var hasNext: Bool { nextIndex(auto: false) != nil }
 
@@ -67,8 +76,11 @@ final class PlayerController: NSObject, ObservableObject {
         self.database = database
         self.settings = settings
         super.init()
-        repeatMode = RepeatMode(rawValue: settings.get(PK.repeatMode) ?? 0) ?? .off
-        shuffle = settings.get(PK.shuffleMode) ?? false
+        if settings.get(PK.rememberShuffleAndRepeat) ?? true {
+            repeatMode = RepeatMode(rawValue: settings.get(PK.repeatMode) ?? 0) ?? .off
+            shuffle = settings.get(PK.shuffleMode) ?? false
+        }
+        pitchFollowsRate = settings.get(PK.varispeed) ?? false
         player.automaticallyWaitsToMinimizeStalling = true
         player.volume = settings.get(PK.playerVolume) ?? 1
         observePlayer()
@@ -138,7 +150,13 @@ final class PlayerController: NSObject, ObservableObject {
         insert(tracks, at: queue.count, afterCurrentInShuffle: false)
     }
 
-    private func insert(_ tracks: [Track], at index: Int, afterCurrentInShuffle: Bool) {
+    private func insert(_ incoming: [Track], at index: Int, afterCurrentInShuffle: Bool) {
+        var tracks = incoming
+        if settings.get(PK.preventDuplicateTracksInQueue) ?? false {
+            let have = Set(queue.map { $0.id })
+            tracks = tracks.filter { !have.contains($0.id) }
+            if tracks.isEmpty { return }
+        }
         queue.insert(contentsOf: tracks, at: index)
         if let c = currentIndex, index <= c { currentIndex = c + tracks.count }
         // Сдвигаем индексы в порядке перемешивания и вставляем новые.
@@ -314,7 +332,7 @@ final class PlayerController: NSObject, ObservableObject {
         if duration > 0 && position >= duration - 0.5 { player.seek(to: .zero) }
         wantsPlay = true
         activateSession()
-        player.play()
+        startPlayer()
     }
 
     func pause() {
@@ -404,7 +422,7 @@ final class PlayerController: NSObject, ObservableObject {
             adopt(pre.item, pre.audio)
             if autoplay {
                 activateSession()
-                player.play()
+                startPlayer()
             }
             schedulePreload()
             return
@@ -441,7 +459,7 @@ final class PlayerController: NSObject, ObservableObject {
                     }
                     if self.wantsPlay {
                         self.activateSession()
-                        self.player.play()
+                        self.startPlayer()
                     }
                     self.schedulePreload()
                     self.endBackgroundTask()
@@ -461,7 +479,9 @@ final class PlayerController: NSObject, ObservableObject {
     private func makeItem(_ audio: ResolvedAudio) -> AVPlayerItem {
         var options: [String: Any] = [:]
         if !audio.stream.headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = audio.stream.headers }
-        return AVPlayerItem(asset: AVURLAsset(url: audio.stream.url, options: options))
+        let item = AVPlayerItem(asset: AVURLAsset(url: audio.stream.url, options: options))
+        item.audioTimePitchAlgorithm = pitchFollowsRate ? .varispeed : .spectral
+        return item
     }
 
     private func adopt(_ item: AVPlayerItem, _ audio: ResolvedAudio) {
@@ -471,6 +491,7 @@ final class PlayerController: NSObject, ObservableObject {
         servingStream = audio.stream
         servingLocal = audio.isLocal
         isLoading = item.status != .readyToPlay
+        measureBitrateIfNeeded(audio)
         itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
             DispatchQueue.main.async { self?.itemStatusChanged(item) }
         }
@@ -519,6 +540,71 @@ final class PlayerController: NSObject, ObservableObject {
             isPlaying = false
         }
         errorText = message
+    }
+
+    // MARK: - Скорость
+
+    private func startPlayer() {
+        player.play()
+        if playbackRate != 1 { player.rate = playbackRate }
+    }
+
+    func setRate(_ rate: Float) {
+        playbackRate = min(2, max(0.5, rate))
+        if isPlaying || wantsPlay { player.rate = playbackRate }
+    }
+
+    func setPitchFollowsRate(_ on: Bool) {
+        pitchFollowsRate = on
+        settings.set(PK.varispeed, on)
+        for item in player.items() { item.audioTimePitchAlgorithm = on ? .varispeed : .spectral }
+    }
+
+    // MARK: - Битрейт (CRITICAL §2.6: источник не сообщил — меряем размер файла / длительность)
+
+    private var bitrateTask: Task<Void, Never>?
+
+    private func measureBitrateIfNeeded(_ audio: ResolvedAudio) {
+        bitrateTask?.cancel()
+        guard audio.stream.bitrate <= 0 || audio.isLocal, !audio.stream.isHLS else { return }
+        let stream = audio.stream
+        let fallback = Double(current?.durationMs ?? 0) / 1000
+        bitrateTask = Task { [weak self] in
+            guard let bytes = await PlayerController.contentLength(stream), bytes > 0, !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self = self, self.servingStream?.url == stream.url else { return }
+                let d = self.duration > 1 ? self.duration : fallback
+                guard d > 1 else { return }
+                let kbps = PlayerController.roundKbps(Double(bytes) * 8 / d / 1000)
+                self.servingStream?.bitrate = kbps * 1000
+                self.currentAudio?.stream.bitrate = kbps * 1000
+            }
+        }
+    }
+
+    /// Округление к ближайшему стандартному битрейту, если он в пределах 6 %.
+    static func roundKbps(_ raw: Double) -> Int {
+        let standard: [Double] = [64, 96, 128, 160, 192, 224, 256, 320]
+        if let s = standard.min(by: { abs($0 - raw) < abs($1 - raw) }), abs(s - raw) / s < 0.06 { return Int(s) }
+        return Int(raw.rounded())
+    }
+
+    static func contentLength(_ s: AudioStream) async -> Int64? {
+        if s.url.isFileURL {
+            return (try? FileManager.default.attributesOfItem(atPath: s.url.path)[.size] as? NSNumber)?.int64Value
+        }
+        var r = URLRequest(url: s.url, timeoutInterval: 10)
+        r.setValue("bytes=0-1", forHTTPHeaderField: "Range")
+        for (k, v) in s.headers { r.setValue(v, forHTTPHeaderField: k) }
+        return await withCheckedContinuation { (cont: CheckedContinuation<Int64?, Never>) in
+            URLSession.shared.dataTask(with: r) { _, resp, _ in
+                guard let h = resp as? HTTPURLResponse else { return cont.resume(returning: nil) }
+                if let range = h.value(forHTTPHeaderField: "Content-Range"), let total = range.split(separator: "/").last, let n = Int64(total) {
+                    return cont.resume(returning: n)
+                }
+                cont.resume(returning: h.statusCode == 200 && h.expectedContentLength > 0 ? h.expectedContentLength : nil)
+            }.resume()
+        }
     }
 
     // MARK: - Подготовка следующего
@@ -621,10 +707,19 @@ final class PlayerController: NSObject, ObservableObject {
                 return
             }
             if self.repeatMode == .one {
+                // AVQueuePlayer уже выкинул доигравший трек: ставим его заново.
                 self.recordHistoryIfNeeded()
                 self.resetPlayCounter()
-                self.player.seek(to: .zero)
-                self.player.play()
+                if let audio = self.currentAudio {
+                    let again = self.makeItem(audio)
+                    self.player.removeAllItems()
+                    self.player.insert(again, after: nil)
+                    self.adopt(again, audio)
+                    self.activateSession()
+                    self.startPlayer()
+                } else if let c = self.currentIndex {
+                    self.load(c, autoplay: true)
+                }
                 return
             }
             if let n = self.nextIndex(auto: true) {
@@ -765,7 +860,7 @@ final class PlayerController: NSObject, ObservableObject {
 
     /// Засчитывается половина трека, но не меньше порога (30 с по умолчанию) и не больше 4 минут.
     private func recordHistoryIfNeeded() {
-        guard !historyRecorded, let t = current else { return }
+        guard !historyRecorded, let t = current, !(settings.get(PK.pauseListenHistory) ?? false) else { return }
         let minimum = Double(settings.get(PK.historyDuration) ?? 30)
         let length = duration > 0 ? duration : Double(t.durationMs) / 1000
         let threshold = min(max(length / 2, minimum), 240)

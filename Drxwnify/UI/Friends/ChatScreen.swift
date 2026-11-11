@@ -8,6 +8,8 @@ struct ChatScreen: View {
     @EnvironmentObject private var player: PlayerController
 
     @State private var messages: [ChatMessage] = []
+    @State private var lines: [ChatLine] = []
+    @State private var acting: ChatMessage?
     @State private var reactions: [String: [ChatReaction]] = [:]
     @State private var text = ""
     @State private var replyTo: ChatMessage?
@@ -27,8 +29,17 @@ struct ChatScreen: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(messages) { m in
-                            bubble(m).id(m.id)
+                        ForEach(lines) { line in
+                            if let day = line.day {
+                                Text(day).font(.caption.weight(.medium)).foregroundColor(.secondary)
+                                    .padding(.horizontal, 10).padding(.vertical, 4)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                                    .padding(.vertical, 6)
+                            } else if line.batch.count > 1 {
+                                batchBubble(line.batch).id(line.id)
+                            } else if let m = line.batch.first {
+                                bubble(m).id(m.id)
+                            }
                         }
                         if chats.isTyping(peer) {
                             Text(L("ios_typing")).font(.caption).foregroundColor(.secondary)
@@ -37,9 +48,9 @@ struct ChatScreen: View {
                     }
                     .padding(.vertical, 10)
                 }
-                .onAppear { if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) } }
+                .onAppear { if let last = lines.last { proxy.scrollTo(last.id, anchor: .bottom) } }
                 .onChange(of: messages.count) { _ in
-                    if let last = messages.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                    if let last = lines.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
                 }
             }
             inputBar
@@ -48,16 +59,30 @@ struct ChatScreen: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabChrome()
+        .background(EmptyView().sheet(item: $acting) { m in
+            MessageActionsSheet(message: m, mine: m.mine, quick: Self.quickReactions,
+                                react: { chats.react(m, key: $0) },
+                                reply: { replyTo = m; editing = nil },
+                                copy: { UIPasteboard.general.string = m.text.isEmpty ? (m.card?.label ?? "") : Stickers.plain(m.text) },
+                                forward: { forwarding = m },
+                                edit: m.mine && !m.text.isEmpty ? { editing = m; replyTo = nil; text = m.text } : nil,
+                                retry: m.mine && m.state == ChatMessage.stateFailed ? { chats.retry(m) } : nil,
+                                deleteForBoth: m.mine ? { chats.delete(m, forBoth: true) } : nil,
+                                deleteForMe: { chats.delete(m, forBoth: false) })
+                .modifier(MediumSheet())
+        })
         .background(EmptyView().sheet(item: $forwarding) { m in
             ForwardSheet(message: m, from: peer).environmentObject(friends).environmentObject(chats)
         })
         .onAppear {
+            env.chatOpen = true
             chats.openPeer = peer
             chats.hold("chat", true)
             reload()
             chats.markRead(peer)
         }
         .onDisappear {
+            env.chatOpen = false
             if chats.openPeer == peer { chats.openPeer = nil }
             chats.hold("chat", false)
         }
@@ -67,11 +92,8 @@ struct ChatScreen: View {
         }
     }
 
-    /// Как на Android: строка ввода стоит над мини-плеером; с клавиатурой мини-плеер уходит под неё.
-    private var miniPlayerGap: CGFloat {
-        if #available(iOS 26.0, *) { return 0 }
-        return player.current != nil && !keyboard.visible ? MiniPlayerView.classicHeight + 4 : 0
-    }
+    /// В чате мини-плеера нет (сообщил пользователь): строка ввода стоит у нижнего края.
+    private var miniPlayerGap: CGFloat { 0 }
 
     /// Музыка в чат (значок ♪ справа, как на Android): панель с тем, что играет, недавними, любимыми и поиском.
     private var currentTrackButton: some View {
@@ -91,6 +113,7 @@ struct ChatScreen: View {
     private func reload() {
         messages = chats.messages(peer)
         reactions = chats.reactions(peer)
+        lines = ChatLine.build(messages)
     }
 
     @ViewBuilder private func bubble(_ m: ChatMessage) -> some View {
@@ -124,8 +147,11 @@ struct ChatScreen: View {
                 }
             }
             .contentShape(Rectangle())
-            .contextMenu { menu(m) }
-            .onTapGesture(count: 2) { chats.react(m, key: "❤️") }
+            .onTapGesture(count: 2) { chats.react(m, key: MessagesSettingsScreen.quick(env.prefs.shared("chat"))) }
+            .onLongPressGesture(minimumDuration: 0.35) {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                acting = m
+            }
             .modifier(SwipeToReply { replyTo = m; editing = nil })
             if !m.mine { Spacer(minLength: 50) }
         }
@@ -174,10 +200,41 @@ struct ChatScreen: View {
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(m.mine ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.18)))
-            .contextMenu { menu(m) }
-            .onTapGesture(count: 2) { chats.react(m, key: "❤️") }
+            .onTapGesture(count: 2) { chats.react(m, key: MessagesSettingsScreen.quick(env.prefs.shared("chat"))) }
+            .onLongPressGesture(minimumDuration: 0.35) {
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                acting = m
+            }
             .modifier(SwipeToReply { replyTo = m; editing = nil })
             if !m.mine { Spacer(minLength: 50) }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    /// Треки, отправленные вместе, — одним пузырём (как на Android и в Telegram).
+    private func batchBubble(_ batch: [ChatMessage]) -> some View {
+        let first = batch[0], last = batch[batch.count - 1]
+        return HStack {
+            if first.mine { Spacer(minLength: 50) }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(batch) { m in
+                    if let c = m.card {
+                        musicCard(c)
+                            .onLongPressGesture(minimumDuration: 0.35) { acting = m }
+                    }
+                }
+                HStack(spacing: 4) {
+                    Spacer(minLength: 0)
+                    Text(time(last.ts)).font(.caption2)
+                    if last.mine { stateIcon(last) }
+                }
+                .foregroundColor(.secondary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(maxWidth: UIMetrics.width * 0.78, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(first.mine ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.18)))
+            .modifier(SwipeToReply { replyTo = last; editing = nil })
+            if !first.mine { Spacer(minLength: 50) }
         }
         .padding(.horizontal, 10)
     }
@@ -261,8 +318,8 @@ struct ChatScreen: View {
                 .frame(height: 58)
             }
             HStack(spacing: 8) {
-                Button(action: { showStickers = true }) {
-                    Image(systemName: "face.smiling").font(.system(size: 24)).frame(width: 34, height: 38)
+                Button(action: toggleStickers) {
+                    Image(systemName: showStickers ? "keyboard" : "face.smiling").font(.system(size: 22)).frame(width: 34, height: 38)
                 }
                 .disabled(!chats.canWrite(peer))
                 TextField(chats.canWrite(peer) ? L("ios_message") : L("ios_chat_readonly"), text: $text)
@@ -280,11 +337,26 @@ struct ChatScreen: View {
                 }
             }
             .padding(.horizontal, 10)
+            if showStickers {
+                Divider()
+                StickerPanel { s in sendSticker(s) }
+                    .frame(height: UIMetrics.isShort ? 230 : 290)
+                    .transition(.move(edge: .bottom))
+            }
         }
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, showStickers ? 0 : 8)
         .background(BlurView(style: .systemChromeMaterial).ignoresSafeArea(edges: .bottom))
-        .sheet(isPresented: $showStickers) {
-            StickerPanel { s in sendSticker(s) }
+        .onChange(of: keyboard.visible) { v in if v && showStickers { withAnimation(.easeOut(duration: 0.2)) { showStickers = false } } }
+    }
+
+    /// ☺ ↔ клавиатура: панель стикеров встаёт на место клавиатуры.
+    private func toggleStickers() {
+        if showStickers {
+            withAnimation(.easeOut(duration: 0.2)) { showStickers = false }
+        } else {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            withAnimation(.easeOut(duration: 0.25)) { showStickers = true }
         }
     }
 

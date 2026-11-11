@@ -496,7 +496,8 @@ final class SpotifyAPI {
         return SpotifyArtist(id: artistId, name: data.obj("profile")?.str("name") ?? "",
                              images: parseImages(data.obj("visuals")?.obj("avatarImage")?.arr("sources")),
                              uri: "spotify:artist:\(artistId)",
-                             monthlyListeners: data.obj("stats")?.int("monthlyListeners"))
+                             monthlyListeners: data.obj("stats")?.int("monthlyListeners"),
+                             followers: data.obj("stats")?.int("followers"))
     }
 
     func artistDiscography(_ artistId: String) async throws -> SpotifyArtistDiscography {

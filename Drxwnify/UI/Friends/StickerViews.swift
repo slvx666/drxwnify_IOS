@@ -133,6 +133,9 @@ struct StickerImage: UIViewRepresentable {
         v.contentMode = .scaleAspectFit
         v.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         v.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        v.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        v.setContentHuggingPriority(.defaultLow, for: .vertical)
+        v.clipsToBounds = true
         v.image = Self.image(id)
         return v
     }
@@ -150,38 +153,38 @@ extension View {
     }
 }
 
-/// Панель стикеров (кнопка ☺ слева от поля ввода).
+/// Панель стикеров вместо клавиатуры, как на Android: сетка по 4 с подписью-кодом;
+/// тап отправляет стикер, долгое нажатие показывает его крупно.
 struct StickerPanel: View {
     let pick: (StickerStore.Sticker) -> Void
-    @Environment(\.presentationMode) private var presentation
     @State private var zoomed: StickerStore.Sticker?
 
+    private var side: CGFloat { ((UIMetrics.width - 16 * 2 - 12 * 3) / 4).rounded(.down) }
+
     var body: some View {
-        NavigationView {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 12)], spacing: 12) {
-                    ForEach(StickerStore.all) { s in
+        ScrollView {
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(side), spacing: 12), count: 4), spacing: 10) {
+                ForEach(StickerStore.all) { s in
+                    VStack(spacing: 3) {
                         StickerImage(id: s.id)
-                            .stickerFrame(s.id, height: 72)
-                            .frame(maxWidth: .infinity)
-                            .contentShape(Rectangle())
-                            .onTapGesture { pick(s); presentation.wrappedValue.dismiss() }
-                            .onLongPressGesture { zoomed = s }
+                            .frame(width: side - 8, height: side - 8)
+                        Text(s.code).font(.caption2).foregroundColor(.secondary).lineLimit(1)
                     }
+                    .frame(width: side)
+                    .contentShape(Rectangle())
+                    .onTapGesture { pick(s) }
+                    .onLongPressGesture { zoomed = s }
                 }
-                .padding(16)
             }
-            .navigationTitle(L("ios_stickers"))
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationBarItems(trailing: Button(L("close")) { presentation.wrappedValue.dismiss() })
-            .overlay(zoomed.map { s in
-                ZStack {
-                    Color.black.opacity(0.6).ignoresSafeArea()
-                    StickerImage(id: s.id).stickerFrame(s.id, height: 220)
-                }
-                .onTapGesture { zoomed = nil }
-            })
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
-        .navigationViewStyle(StackNavigationViewStyle())
+        .overlay(zoomed.map { s in
+            ZStack {
+                Color.black.opacity(0.6)
+                StickerImage(id: s.id).frame(width: 200, height: 200)
+            }
+            .onTapGesture { zoomed = nil }
+        })
     }
 }

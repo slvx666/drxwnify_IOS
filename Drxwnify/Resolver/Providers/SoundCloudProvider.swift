@@ -198,6 +198,20 @@ final class SoundCloudProvider: AudioProvider {
         return Array(out.prefix(4))
     }
 
+    /// «Версия трека»: несколько лучших загрузок; открытость потока проверяется при выборе.
+    func versions(_ q: AudioQuery, limit: Int) async throws -> [ProviderMatch] {
+        let text = q.searchText
+        if text.trimmingCharacters(in: .whitespaces).isEmpty { return [] }
+        let ranked = rank(q, try await searchTracks(text))
+        var out: [ProviderMatch] = []
+        for (track, score) in ranked.prefix(limit) {
+            await state.cache(track.id, track.json)
+            out.append(ProviderMatch(provider: id, trackId: track.id, title: track.title, artist: track.artist,
+                                     durationMs: track.durationMs, confidence: score, thumbnailUrl: track.artwork, qualityKbps: nil))
+        }
+        return out
+    }
+
     /// Поиск с проверкой: релизы лейблов часто отдаются только зашифрованным HLS, поэтому
     /// у лучших совпадений проверяется настоящий открытый поток, и берётся первое играющее.
     func search(_ q: AudioQuery) async throws -> ProviderMatch? {

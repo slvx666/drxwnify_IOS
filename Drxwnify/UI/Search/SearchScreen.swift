@@ -195,9 +195,37 @@ final class SearchModel: ObservableObject {
         }
     }
 
+    /// Ссылка в строке поиска (Android 2.1.3): Spotify, Яндекс, Drxwnify — открыть экран; YouTube — искать по названию ролика.
+    private func handleLink(_ q: String) -> Bool {
+        guard q.contains("://") || q.hasPrefix("www.") || q.hasPrefix("youtu"), let url = URL(string: q.hasPrefix("http") || q.contains("://") ? q : "https://" + q) else { return false }
+        if let t = AppLinks.parse(url) {
+            DispatchQueue.main.async { self.env?.linkTarget = t; self.query = "" }
+            return true
+        }
+        let host = url.host?.lowercased() ?? ""
+        guard host.contains("youtube.com") || host.contains("youtu.be") else { return false }
+        var c = URLComponents(string: "https://www.youtube.com/oembed")
+        c?.queryItems = [URLQueryItem(name: "url", value: url.absoluteString), URLQueryItem(name: "format", value: "json")]
+        guard let api = c?.url else { return false }
+        isLoading = true
+        URLSession.shared.dataTask(with: api) { [weak self] data, _, _ in
+            let o = data.flatMap { JSON.object($0) }
+            var title = o?.str("title") ?? ""
+            let author = (o?.str("author_name") ?? "").replacingOccurrences(of: " - Topic", with: "")
+            if !author.isEmpty && !title.lowercased().contains(author.lowercased()) { title = author + " " + title }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isLoading = false
+                if title.isEmpty { self.error = L("ios_link_not_recognized") } else { self.query = title; self.submit() }
+            }
+        }.resume()
+        return true
+    }
+
     private func scheduleSearch() {
         task?.cancel()
         let q = query.trimmingCharacters(in: .whitespaces)
+        if handleLink(q) { return }
         if q.isEmpty {
             result = nil
             error = nil

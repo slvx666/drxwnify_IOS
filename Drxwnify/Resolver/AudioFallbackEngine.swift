@@ -152,7 +152,7 @@ final class AudioFallbackEngine {
                     await withTaskGroup(of: [ProviderMatch]?.self) { inner in
                         inner.addTask {
                             if let vk = p as? VkProvider { return (try? await vk.uploads(q, limit: 5)) ?? [] }
-                            return ((try? await p.search(q)) ?? nil).map { [$0] } ?? []
+                            return (try? await p.versions(q, limit: 4)) ?? []
                         }
                         inner.addTask {
                             try? await Task.sleep(nanoseconds: UInt64(p.searchTimeout * 1_000_000_000))
@@ -166,7 +166,10 @@ final class AudioFallbackEngine {
             }
             for await list in group { found.append(contentsOf: list) }
         }
-        return ParallelAudioResolver.sorted(found, order: order, mode: .QUALITY)
+        // Без дублей (одна запись могла прийти дважды).
+        var seen = Set<String>()
+        let unique = found.filter { seen.insert($0.provider.rawValue + ":" + $0.trackId).inserted }
+        return ParallelAudioResolver.sorted(unique, order: order, mode: .QUALITY)
     }
 
     /// Сбрасывает ручной выбор: дальше источник снова выбирается автоматически.

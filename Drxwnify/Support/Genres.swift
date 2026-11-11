@@ -230,28 +230,39 @@ final class Genres: ObservableObject {
 struct GenreChips: View {
     let artist: String
     var album: String?
+    /// По центру в несколько строк (альбом), иначе слева.
+    var centered = false
     @State private var genres: [String] = []
     /// Тап по тегу открывает жанровый плейлист (HOME-010).
     @State private var opened: String?
+
+    /// Цвет точки тега — как на Android: постоянный для жанра.
+    static func dot(_ genre: String) -> Color {
+        let palette: [Color] = [.yellow, .green, .blue, .purple, .pink, .orange, .red,
+                                Color(red: 0.2, green: 0.8, blue: 0.8), Color(red: 0.4, green: 0.9, blue: 0.6), Color(red: 0.4, green: 0.6, blue: 1)]
+        var h: UInt32 = 5381
+        for b in genre.lowercased().utf8 { h = (h &* 33) &+ UInt32(b) }
+        return palette[Int(h % UInt32(palette.count))]
+    }
 
     var body: some View {
         Group {
             if genres.isEmpty {
                 Color.clear.frame(height: 0)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(genres, id: \.self) { g in
-                            Button(action: { opened = g }) {
-                                Text(g).font(.caption.weight(.medium))
-                                    .padding(.horizontal, 12).padding(.vertical, 6)
-                                    .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-                            }
-                            .buttonStyle(PlainButtonStyle())
+                FlowChips(items: genres, centered: centered) { g in
+                    Button(action: { opened = g }) {
+                        HStack(spacing: 6) {
+                            Circle().fill(GenreChips.dot(g)).frame(width: 7, height: 7)
+                            Text(g).font(.caption.weight(.medium)).lineLimit(1)
                         }
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(Capsule().fill(GenreChips.dot(g).opacity(0.22)))
                     }
-                    .padding(.horizontal, 16)
+                    .buttonStyle(PlainButtonStyle())
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
             }
         }
         .listRowInsets(EdgeInsets())
@@ -270,5 +281,40 @@ struct GenreChips: View {
             if let al = al { found = await Genres.shared.ofAlbum(artist: a, album: al) } else { found = await Genres.shared.of(a) }
             await MainActor.run { if !found.isEmpty { genres = found } }
         }
+    }
+}
+
+/// Теги в несколько строк (на iOS 14 нет `Layout`): раскладка по ширине экрана заранее.
+struct FlowChips<Content: View>: View {
+    let items: [String]
+    var centered = false
+    let content: (String) -> Content
+
+    private var rows: [[String]] {
+        let maxWidth = UIMetrics.width - 32
+        let font = UIFont.preferredFont(forTextStyle: .caption1)
+        var rows: [[String]] = [[]]
+        var width: CGFloat = 0
+        for item in items {
+            let w = (item as NSString).size(withAttributes: [.font: font]).width + 20 + 13 + 8
+            if width + w > maxWidth, !(rows.last ?? []).isEmpty {
+                rows.append([])
+                width = 0
+            }
+            rows[rows.count - 1].append(item)
+            width += w
+        }
+        return rows
+    }
+
+    var body: some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(row, id: \.self) { content($0) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
     }
 }

@@ -40,6 +40,8 @@ private struct SpotifyLibraryContent: View {
     @State private var localArtists: [LocalArtist] = []
     @State private var summary = LibraryStore.Summary()
     @State private var creating = false
+    @State private var searching = false
+    @State private var query = ""
     @State private var newName = ""
     /// Сетка 3 в ряд или список (LIB-002), как `spotify_library_grid` на Android.
     @AppStorage("spotify_library_grid") private var grid = false
@@ -104,14 +106,18 @@ private struct SpotifyLibraryContent: View {
                 Button(action: cancelCreate) { Image(systemName: "xmark") }.buttonStyle(BorderlessButtonStyle())
             }
         }
-        if !isLinked || filter == .songs {
+        if (!isLinked || filter == .songs) && (settings.get(PK.showLikedPlaylist) ?? true) {
             autoRow(L("liked"), "heart.fill", .red, summary.liked > 0 ? LPlural("n_song", summary.liked) : nil, LocalTrackListScreen(kind: .liked))
         }
-        if filter == .all || filter == .songs {
+        // Как на Android: «Композиции», «Скачанные», «Мой топ» — под фишкой «Локальные» (или без аккаунта).
+        if filter == .songs || !isLinked {
             autoRow(L("songs"), "music.note", .blue, summary.songs > 0 ? LPlural("n_song", summary.songs) : nil, LocalTrackListScreen(kind: .songs))
-            autoRow(L("downloaded_songs"), "arrow.down.circle.fill", .green, nil, LocalTrackListScreen(kind: .downloaded))
-            autoRow(L("my_top"), "chart.bar.fill", .orange, nil, LocalTrackListScreen(kind: .top))
-            autoRow(L("history"), "clock.arrow.circlepath", .purple, nil, HistoryScreen())
+            if settings.get(PK.showDownloadedPlaylist) ?? true {
+                autoRow(L("downloaded_songs"), "arrow.down.circle.fill", .green, nil, LocalTrackListScreen(kind: .downloaded))
+            }
+            if settings.get(PK.showTopPlaylist) ?? true {
+                autoRow(L("my_top"), "chart.bar.fill", .orange, nil, LocalTrackListScreen(kind: .top))
+            }
         }
         if filter == .all || filter == .playlists {
             ForEach(localPlaylists) { p in
@@ -177,17 +183,21 @@ private struct SpotifyLibraryContent: View {
         case .albums: filtered = all.filter { $0.kind == .album }
         case .artists: filtered = all.filter { $0.kind == .artist }
         }
+        let q = query.trimmingCharacters(in: .whitespaces)
+        let matched = q.isEmpty ? filtered : filtered.filter {
+            $0.name.localizedCaseInsensitiveContains(q) || ($0.creator ?? "").localizedCaseInsensitiveContains(q)
+        }
         let sorted: [SpotifyLibraryEntry]
         switch sort {
-        case .recents: sorted = filtered
+        case .recents: sorted = matched
         case .dateAdded:
-            sorted = filtered.enumerated().sorted { a, b in
+            sorted = matched.enumerated().sorted { a, b in
                 let x = a.element.addedAt ?? "", y = b.element.addedAt ?? ""
                 return x != y ? x > y : a.offset < b.offset
             }.map { $0.element }
-        case .name: sorted = filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .name: sorted = matched.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .creator:
-            sorted = filtered.sorted { a, b in
+            sorted = matched.sorted { a, b in
                 let c = (a.creator ?? a.name).localizedCaseInsensitiveCompare(b.creator ?? b.name)
                 return c != .orderedSame ? c == .orderedAscending : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             }
@@ -209,10 +219,20 @@ private struct SpotifyLibraryContent: View {
                 .listRowBackground(Color.clear)
             toolsRow
                 .listRowBackground(Color.clear)
+            if searching {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                    TextField(L("search"), text: $query)
+                    if !query.isEmpty { Button(action: { query = "" }) { Image(systemName: "xmark.circle.fill").foregroundColor(.secondary) }.buttonStyle(BorderlessButtonStyle()) }
+                }
+                .padding(.horizontal, 10).frame(height: 36)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.15)))
+                .listRowBackground(Color.clear)
+            }
 
             if !isLinked {
                 loginRow
-                NavigationLink(destination: ContentSettingsScreen(settings: settings)) {
+                NavigationLink(destination: IntegrationsScreen(settings: settings)) {
                     HStack(spacing: 12) {
                         Image(systemName: "y.circle.fill").font(.title2).foregroundColor(.yellow).frame(width: 48, height: 48)
                         Text(L("yandex_login")).foregroundColor(.primary)
@@ -308,18 +328,20 @@ private struct SpotifyLibraryContent: View {
                         if s == sort { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
                     }
                 }
+                Divider()
+                Button(action: { creating = true }) { Label(L("create_playlist"), systemImage: "plus") }
+                Button(action: { reload(force: true) }) { Label(L("refetch"), systemImage: "arrow.clockwise") }
             } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.arrow.down").font(.caption.weight(.semibold))
+                HStack(spacing: 4) {
                     Text(sort.title).font(.subheadline.weight(.medium))
+                    Text("·").foregroundColor(.secondary)
+                    Image(systemName: "arrow.down").font(.caption.weight(.semibold))
                 }
             }
             Spacer()
-            Button(action: { grid.toggle() }) { Image(systemName: grid ? "list.bullet" : "square.grid.3x3") }
+            Button(action: { withAnimation { searching.toggle(); if !searching { query = "" } } }) { Image(systemName: "magnifyingglass") }
                 .buttonStyle(BorderlessButtonStyle())
-            Button(action: { creating = true }) { Image(systemName: "plus") }
-                .buttonStyle(BorderlessButtonStyle())
-            Button(action: { reload(force: true) }) { Image(systemName: "arrow.clockwise") }
+            Button(action: { grid.toggle() }) { Image(systemName: grid ? "list.bullet" : "square.grid.2x2") }
                 .buttonStyle(BorderlessButtonStyle())
         }
         .foregroundColor(.primary)

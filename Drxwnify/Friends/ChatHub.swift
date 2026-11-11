@@ -717,7 +717,10 @@ enum Stickers {
 /// Локальные уведомления о новых сообщениях.
 enum ChatNotifier {
     static func notify(from name: String, text: String) {
+        guard Thread.isMainThread else { return DispatchQueue.main.async { notify(from: name, text: text) } }
         guard UIApplication.shared.applicationState != .active else { return }
+        // «Уведомления о сообщениях» (Настройки → Сообщения, SharedPreferences `chat`, ключ `notify`).
+        if UserDefaults(suiteName: "sp.chat")?.object(forKey: "notify") as? Bool == false { return }
         let content = UNMutableNotificationContent()
         content.title = name.isEmpty ? "Drxwnify" : name
         content.body = text

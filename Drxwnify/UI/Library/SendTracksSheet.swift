@@ -4,6 +4,7 @@ import SwiftUI
 struct SendTracksSheet: View {
     let tracks: [Track]
     @EnvironmentObject private var env: AppEnvironment
+    @EnvironmentObject private var downloads: DownloadManager
     @Environment(\.presentationMode) private var presentation
     @State private var shareItems: [Any]?
     @State private var sentTo: String?
@@ -14,6 +15,11 @@ struct SendTracksSheet: View {
                 Section {
                     Button(action: shareLinks) {
                         Label(L("ios_send_link"), systemImage: "link")
+                    }
+                    if tracks.contains(where: { downloads.fileURL($0.id) != nil }) {
+                        Button(action: { shareItems = downloads.exportCopies(tracks) }) {
+                            Label(L("ios_send_files"), systemImage: "doc.badge.arrow.up")
+                        }
                     }
                 }
                 Section(header: Text(L("ios_send_to_chat"))) {
