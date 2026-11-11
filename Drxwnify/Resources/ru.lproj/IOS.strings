@@ -167,3 +167,5 @@
 "ios_forward" = "Переслать";
 "ios_lyrics_earlier" = "Раньше на 0,5 с";
 "ios_lyrics_later" = "Позже на 0,5 с";
+"ios_backup_found" = "Найдено в папке Drxwnify";
+"ios_backup_found_hint" = "Копии из «Файлы» → «На iPhone» → Drxwnify. После восстановления файл удаляется.";

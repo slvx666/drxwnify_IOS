@@ -25,6 +25,8 @@ struct BackupScreen: View {
     @State private var showConfirm = false
     @State private var notice: Notice?
     @State private var shared: SharedFile?
+    /// Копии `.backup` в папке приложения («Файлы» → «На iPhone» → Drxwnify, или положенные с компьютера).
+    @State private var found: [URL] = []
 
     var body: some View {
         List {
@@ -37,6 +39,20 @@ struct BackupScreen: View {
                 }
             }
             .disabled(busy != .none)
+
+            if !found.isEmpty {
+                Section(header: Text(L("ios_backup_found")), footer: Text(L("ios_backup_found_hint"))) {
+                    ForEach(found, id: \.self) { url in
+                        Button(action: {
+                            pendingURL = url
+                            showConfirm = true
+                        }) {
+                            Label(url.lastPathComponent, systemImage: "doc.zipper")
+                        }
+                    }
+                }
+                .disabled(busy != .none)
+            }
 
             if busy != .none {
                 Section {
@@ -110,6 +126,10 @@ struct BackupScreen: View {
     }
 
     private func reload() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let files = (try? FileManager.default.contentsOfDirectory(at: docs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        found = files.filter { ["backup", "zip"].contains($0.pathExtension.lowercased()) }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
         let backup = env.backup
         DispatchQueue.global(qos: .userInitiated).async {
             let summary = backup.currentSummary()

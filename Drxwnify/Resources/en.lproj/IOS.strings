@@ -167,3 +167,5 @@
 "ios_forward" = "Forward";
 "ios_lyrics_earlier" = "0.5 s earlier";
 "ios_lyrics_later" = "0.5 s later";
+"ios_backup_found" = "Found in the Drxwnify folder";
+"ios_backup_found_hint" = "Backups from Files → On My iPhone → Drxwnify. The file is deleted after restoring.";
