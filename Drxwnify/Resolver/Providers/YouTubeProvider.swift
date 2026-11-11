@@ -1,7 +1,7 @@
 import Foundation
 
 /// YouTube как источник звука. Поиск — каталог YouTube Music (клиент WEB_REMIX, фильтр «песни»),
-/// поток — клиент ANDROID_VR: он отдаёт прямые адреса без подписи и n-параметра.
+/// поток — цепочка клиентов VISIONOS → ANDROID_VR (как на Android): прямые адреса без подписи и n-параметра.
 /// Берётся только `audio/mp4` (AAC): Opus/WebM `AVPlayer` не играет (PLATFORMS).
 final class YouTubeProvider: AudioProvider {
     let id = AudioProviderId.YOUTUBE
@@ -143,19 +143,97 @@ final class YouTubeProvider: AudioProvider {
         }
     }
 
-    /// Прямой адрес AAC для видео. nil — видео нельзя играть этим клиентом (возраст, регион, только Opus).
+    /// Клиент `youtubei/v1/player` из `innertube/.../YouTubeClient.kt`.
+    struct Client {
+        let name: String
+        let version: String
+        let id: String
+        let userAgent: String
+        var osName: String?
+        var osVersion: String?
+        var deviceMake: String?
+        var deviceModel: String?
+        var androidSdkVersion: Int?
+    }
+
+    /// Цепочка как `YTPlayerUtils.STREAM_FALLBACK_CLIENTS` на Android: без PoToken, подписи и n-параметра.
+    /// VISIONOS — единственный, что отдаёт файл целиком; дальше ANDROID_VR 1.65.10 (закреп yt-dlp) и старый 1.61.48.
+    /// TVHTML5 и WEB_CREATOR требуют входа и шифра, IOS/IPADOS отдают только ~1 МиБ — их нет.
+    static let clients: [Client] = [
+        Client(name: "VISIONOS", version: "0.1", id: "101",
+               userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+               osName: "visionOS", osVersion: "1.3.21O771", deviceMake: "Apple", deviceModel: "RealityDevice14,1"),
+        Client(name: "ANDROID_VR", version: "1.65.10", id: "28",
+               userAgent: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+               osName: "Android", osVersion: "12L", deviceMake: "Oculus", deviceModel: "Quest 3", androidSdkVersion: 32),
+        Client(name: "ANDROID_VR", version: vrVersion, id: "28", userAgent: vrUA,
+               osName: "Android", osVersion: "12", deviceMake: "Oculus", deviceModel: "Quest 3", androidSdkVersion: 32),
+    ]
+
+    /// Почему YouTube не отдал звук в последний раз (для подсказки «смени сервер VPN», DL-008).
+    static var lastBlock: String?
+
+    private let visitor = VisitorData()
+
+    /// `visitorData` из ответа YouTube Music: без него часть клиентов чаще получает «войдите, чтобы подтвердить…».
+    private actor VisitorData {
+        var value: String?
+        var fetchedAt = Date.distantPast
+        func get() -> String? { Date().timeIntervalSince(fetchedAt) < 6 * 3600 ? value : nil }
+        func set(_ v: String) { value = v; fetchedAt = Date() }
+    }
+
+    private func visitorData() async -> String? {
+        if let v = await visitor.get() { return v }
+        let body: JSONObject = ["context": ["client": ["clientName": "WEB_REMIX", "clientVersion": Self.remixVersion, "hl": "en", "gl": "US"]],
+                                "browseId": "FEmusic_home"]
+        guard let root = try? await post("https://music.youtube.com/youtubei/v1/browse?prettyPrint=false", body: body, headers: [
+            "User-Agent": Self.webUA, "X-YouTube-Client-Name": "67", "X-YouTube-Client-Version": Self.remixVersion,
+            "Origin": "https://music.youtube.com", "Referer": "https://music.youtube.com/",
+        ], timeout: 6), let v = root.obj("responseContext")?.str("visitorData"), !v.isEmpty else { return nil }
+        await visitor.set(v)
+        return v
+    }
+
+    /// Прямой адрес AAC для видео: клиенты по очереди, первый с `audio/mp4` побеждает.
+    /// nil — видео не играет ни одним клиентом (возраст, регион, «не бот» без VPN, только Opus).
     func stream(videoId: String) async throws -> AudioStream? {
+        let visitor = await visitorData()
+        var reasons: [String] = []
+        for client in Self.clients {
+            do {
+                if let s = try await stream(videoId: videoId, client: client, visitorData: visitor) {
+                    Self.lastBlock = nil
+                    return s
+                }
+                reasons.append("\(client.name) \(client.version): no AAC")
+            } catch {
+                reasons.append("\(client.name) \(client.version): \(error.localizedDescription)")
+            }
+        }
+        Self.lastBlock = reasons.joined(separator: "; ")
+        return nil
+    }
+
+    private func stream(videoId: String, client c: Client, visitorData: String?) async throws -> AudioStream? {
+        var ctx: JSONObject = ["clientName": c.name, "clientVersion": c.version, "hl": "en", "gl": "US"]
+        if let v = c.osName { ctx["osName"] = v }
+        if let v = c.osVersion { ctx["osVersion"] = v }
+        if let v = c.deviceMake { ctx["deviceMake"] = v }
+        if let v = c.deviceModel { ctx["deviceModel"] = v }
+        if let v = c.androidSdkVersion { ctx["androidSdkVersion"] = v }
+        if let v = visitorData { ctx["visitorData"] = v }
         let body: JSONObject = [
-            "context": ["client": [
-                "clientName": "ANDROID_VR", "clientVersion": Self.vrVersion, "deviceMake": "Oculus", "deviceModel": "Quest 3",
-                "androidSdkVersion": 32, "osName": "Android", "osVersion": "12", "hl": "en", "gl": "US",
-            ]],
+            "context": ["client": ctx],
             "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true,
         ]
-        let root = try await post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body: body, headers: [
-            "User-Agent": Self.vrUA, "X-YouTube-Client-Name": "28", "X-YouTube-Client-Version": Self.vrVersion,
-        ], timeout: 8)
-        guard root.obj("playabilityStatus")?.str("status") == "OK", let data = root.obj("streamingData") else { return nil }
+        var headers = ["User-Agent": c.userAgent, "X-YouTube-Client-Name": c.id, "X-YouTube-Client-Version": c.version]
+        if let v = visitorData { headers["X-Goog-Visitor-Id"] = v }
+        let root = try await post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", body: body, headers: headers, timeout: 8)
+        let status = root.obj("playabilityStatus")?.str("status") ?? "?"
+        guard status == "OK", let data = root.obj("streamingData") else {
+            throw Failure(message: status)
+        }
         var best: (JSONObject, Int)?
         for f in data.objects("adaptiveFormats") + data.objects("formats") {
             guard let mime = f.str("mimeType"), mime.hasPrefix("audio/mp4"), let url = f.str("url"), !url.isEmpty else { continue }
@@ -167,6 +245,6 @@ final class YouTubeProvider: AudioProvider {
         guard let (f, bitrate) = best, let s = f.str("url"), let url = URL(string: s) else { return nil }
         let ttl = Double(data.int("expiresInSeconds") ?? 21600)
         return AudioStream(url: url, mimeType: "audio/mp4", codecs: "mp4a.40.2", bitrate: bitrate,
-                           expiresAt: Date().addingTimeInterval(max(600, ttl - 600)), headers: ["User-Agent": Self.vrUA])
+                           expiresAt: Date().addingTimeInterval(max(600, ttl - 600)), headers: ["User-Agent": c.userAgent])
     }
 }

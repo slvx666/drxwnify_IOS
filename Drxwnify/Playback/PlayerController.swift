@@ -376,7 +376,7 @@ final class PlayerController: NSObject, ObservableObject {
                 }
             } catch {
                 if Task.isCancelled { return }
-                let message = error.localizedDescription
+                let message = PlaybackTrouble.explain(error)
                 await MainActor.run {
                     guard self.currentIndex == index else { return }
                     self.endBackgroundTask()
@@ -792,5 +792,31 @@ final class PlayerController: NSObject, ObservableObject {
             duration = Double(queue[i].durationMs) / 1000
             loadArtwork(queue[i])
         }
+    }
+}
+
+/// Почему трек не играет, понятными словами (как `ui/player/PlaybackError.kt` + `resolver/SourceTrouble.kt`):
+/// обрыв сети/VPN, YouTube отказал этому адресу («не бот» — помогает смена сервера VPN), возраст/регион.
+enum PlaybackTrouble {
+    static func explain(_ error: Error) -> String {
+        if let u = error as? URLError {
+            switch u.code {
+            case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return L("playback_err_network_title") + ". " + L("playback_err_network")
+            default: break
+            }
+        }
+        if let block = YouTubeProvider.lastBlock {
+            if block.contains("LOGIN_REQUIRED") || (block.contains("UNPLAYABLE") && block.contains("bot")) {
+                return L("download_issue_youtube_refused")
+            }
+            if block.contains("AGE") || block.contains("UNPLAYABLE") {
+                return L("playback_err_yt_restricted_title") + ". " + L("playback_err_yt_restricted")
+            }
+            if block.contains("NSURLErrorDomain") || block.contains("timed out") || block.contains("offline") {
+                return L("playback_err_yt_unreachable_title") + ". " + L("playback_err_yt_unreachable")
+            }
+        }
+        return error.localizedDescription
     }
 }
