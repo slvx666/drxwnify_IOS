@@ -67,10 +67,13 @@ final class AppDatabase: ObservableObject {
 
     /// Версия схемы и число строк по таблицам в произвольном файле базы (для проверки копии).
     static func inspect(_ url: URL) throws -> (version: Int, counts: [String: Int]) {
-        var config = Configuration()
-        config.readonly = true
-        let queue = try DatabaseQueue(path: url.path, configuration: config)
+        // Копия из Android в режиме WAL, а -shm рядом нет: открываем на запись (это временный файл)
+        // и сразу переводим в обычный журнал, иначе чтение может отказать.
+        let queue = try DatabaseQueue(path: url.path)
         defer { try? queue.close() }
+        if (try? queue.inDatabase { try String.fetchOne($0, sql: "PRAGMA journal_mode") }) == "wal" {
+            try? queue.inDatabase { db in _ = try String.fetchOne(db, sql: "PRAGMA journal_mode=DELETE") }
+        }
         return try queue.read { db in
             let version = try Int.fetchOne(db, sql: "PRAGMA user_version") ?? 0
             guard try db.tableExists("song") else { throw DatabaseError2.notSongDatabase }
@@ -109,7 +112,7 @@ final class AppDatabase: ObservableObject {
 
         let fm = FileManager.default
         let backupURL = url.appendingPathExtension("old")
-        try pool.close()
+        try? pool.close()
         try? fm.removeItem(at: backupURL)
         try? fm.moveItem(at: url, to: backupURL)
         for suffix in ["-wal", "-shm"] { try? fm.removeItem(atPath: url.path + suffix) }

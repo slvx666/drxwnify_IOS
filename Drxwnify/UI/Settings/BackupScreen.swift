@@ -10,6 +10,8 @@ struct BackupScreen: View {
         let id = UUID()
         let title: String
         let text: String
+        /// Подтверждение «Восстановить?» для этого файла (иначе — просто сообщение).
+        var confirm: URL? = nil
     }
 
     private struct SharedFile: Identifiable {
@@ -21,8 +23,6 @@ struct BackupScreen: View {
     @State private var current = BackupManager.Summary()
     @State private var restored: BackupManager.Summary?
     @State private var showPicker = false
-    @State private var pendingURL: URL?
-    @State private var showConfirm = false
     @State private var notice: Notice?
     @State private var shared: SharedFile?
     /// Копии `.backup` в папке приложения («Файлы» → «На iPhone» → Drxwnify, или положенные с компьютера).
@@ -43,10 +43,7 @@ struct BackupScreen: View {
             if !found.isEmpty {
                 Section(header: Text(L("ios_backup_found")), footer: Text(L("ios_backup_found_hint"))) {
                     ForEach(found, id: \.self) { url in
-                        Button(action: {
-                            pendingURL = url
-                            showConfirm = true
-                        }) {
+                        Button(action: { askRestore(url) }) {
                             Label(url.lastPathComponent, systemImage: "doc.zipper")
                         }
                     }
@@ -74,27 +71,29 @@ struct BackupScreen: View {
         .onAppear(perform: reload)
         .sheet(isPresented: $showPicker) {
             DocumentPicker { url in
-                pendingURL = url
                 // Алерт нельзя показать, пока закрывается лист выбора файла.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { showConfirm = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { askRestore(url) }
             }
         }
         .sheet(item: $shared) { file in
             ShareSheet(items: [file.url])
         }
-        .background(
-            EmptyView().alert(isPresented: $showConfirm) {
-                Alert(
-                    title: Text(L("ios_backup_restore_confirm_title")),
-                    message: Text(L("ios_backup_restore_confirm_text")),
-                    primaryButton: .destructive(Text(L("ios_restore")), action: restoreBackup),
-                    secondaryButton: .cancel { pendingURL = nil }
+        // Одно окно на экран: на iOS 14–16 из нескольких `.alert` работает только последний.
+        .alert(item: $notice) { n in
+            if let url = n.confirm {
+                return Alert(
+                    title: Text(n.title),
+                    message: Text(n.text),
+                    primaryButton: .destructive(Text(L("ios_restore"))) { restoreBackup(url) },
+                    secondaryButton: .cancel()
                 )
             }
-        )
-        .alert(item: $notice) { notice in
-            Alert(title: Text(notice.title), message: Text(notice.text), dismissButton: .default(Text("OK")))
+            return Alert(title: Text(n.title), message: Text(n.text), dismissButton: .default(Text("OK")))
         }
+    }
+
+    private func askRestore(_ url: URL) {
+        notice = Notice(title: L("ios_backup_restore_confirm_title"), text: L("ios_backup_restore_confirm_text"), confirm: url)
     }
 
     private func summarySection(_ title: String, _ s: BackupManager.Summary) -> some View {
@@ -137,16 +136,18 @@ struct BackupScreen: View {
         }
     }
 
-    private func restoreBackup() {
-        guard let url = pendingURL else { return }
-        pendingURL = nil
+    private func restoreBackup(_ url: URL) {
         busy = .restoring
         let backup = env.backup
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].standardizedFileURL.path
         DispatchQueue.global(qos: .userInitiated).async {
             let result = Result { try backup.restore(from: url) }
-            DispatchQueue.main.async { env.reloadAfterRestore() }
-            try? FileManager.default.removeItem(at: url)
+            // Копия из выбора файлов — временная, её убираем всегда; файл в папке приложения — только после успеха.
+            let inAppFolder = url.standardizedFileURL.path.hasPrefix(docs)
+            if case .success = result { try? FileManager.default.removeItem(at: url) }
+            else if !inAppFolder { try? FileManager.default.removeItem(at: url) }
             DispatchQueue.main.async {
+                if case .success = result { env.reloadAfterRestore() }
                 busy = .none
                 switch result {
                 case .success(let summary):
@@ -157,7 +158,7 @@ struct BackupScreen: View {
                     }
                     notice = Notice(title: L("ios_backup_restored"), text: text)
                 case .failure(let error):
-                    notice = Notice(title: L("restore_failed"), text: error.localizedDescription)
+                    notice = Notice(title: L("restore_failed"), text: String(describing: error))
                 }
                 reload()
             }
