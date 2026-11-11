@@ -10,6 +10,22 @@ final class Genres: ObservableObject {
     /// Ключ Last.fm приложения Drxwnify из Android (`Genres.LASTFM_KEY`, публичный: он в каждом APK).
     private static let androidKey = "710106bd28502d7d62fb5493c67033f9"
     private static var key: String { LastFM.isConfigured ? LastFM.apiKey : androidKey }
+    /// Ключ Last.fm для других запросов (похожие артисты, жанровые плейлисты).
+    static var apiKey: String { key }
+
+    private static let modifiers: Set<String> = [
+        "progressive", "symphonic", "technical", "brutal", "blackened", "melodic", "atmospheric", "modern",
+        "epic", "slam", "orchestral", "cinematic", "raw", "old", "school", "old-school", "dissonant", "mathy",
+        "experimental", "avant-garde",
+    ]
+
+    /// Семья жанра: без ведущих уточнений («progressive metalcore» → «metalcore»), как `Genres.family`.
+    static func family(_ tag: String) -> String {
+        let words = tag.split(separator: " ").map(String.init)
+        var i = 0
+        while i < words.count - 1 && modifiers.contains(words[i].lowercased()) { i += 1 }
+        return words[i...].joined(separator: " ")
+    }
     private static let ttl: Double = 30 * 24 * 3600
     private static let missTtl: Double = 7 * 24 * 3600
     private static let maxTags = 5
@@ -215,6 +231,8 @@ struct GenreChips: View {
     let artist: String
     var album: String?
     @State private var genres: [String] = []
+    /// Тап по тегу открывает жанровый плейлист (HOME-010).
+    @State private var opened: String?
 
     var body: some View {
         Group {
@@ -224,9 +242,12 @@ struct GenreChips: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(genres, id: \.self) { g in
-                            Text(g).font(.caption.weight(.medium))
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                            Button(action: { opened = g }) {
+                                Text(g).font(.caption.weight(.medium))
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                     .padding(.horizontal, 16)
@@ -235,6 +256,8 @@ struct GenreChips: View {
         }
         .listRowInsets(EdgeInsets())
         .listRowBackground(Color.clear)
+        .background(NavigationLink(destination: GenreScreen(genre: opened ?? ""),
+                                   isActive: Binding(get: { opened != nil }, set: { if !$0 { opened = nil } })) { EmptyView() }.opacity(0))
         .onAppear(perform: load)
     }
 

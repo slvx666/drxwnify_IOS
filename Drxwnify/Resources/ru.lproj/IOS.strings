@@ -158,3 +158,4 @@
 "ios_export_m3u" = "Экспорт в M3U";
 "ios_no_downloaded_selected" = "Среди выбранных нет скачанных треков";
 "ios_auto_download_like" = "Скачивать при лайке";
+"ios_low_quality_skipped" = "Рекомендация ниже 120 kbps — пропускаю";

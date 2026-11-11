@@ -20,6 +20,8 @@ struct SpotifyTrackRow: View {
     var album: SpotifySimpleAlbum?
     /// Число прослушиваний Spotify в подписи (экран альбома, Android 2.1.5).
     var showPlayCount = false
+    /// Что играет после очереди (альбом, топ артиста — радио).
+    var origin: PlayerController.Origin?
 
     @EnvironmentObject private var player: PlayerController
     @EnvironmentObject private var likes: LikeManager
@@ -40,7 +42,7 @@ struct SpotifyTrackRow: View {
         if context.isEmpty {
             player.play([Track(track, album: album)], title: queueTitle)
         } else {
-            player.play(context.map { Track($0, album: album) }, startIndex: index, title: queueTitle)
+            player.play(context.map { Track($0, album: album) }, startIndex: index, title: queueTitle, origin: origin)
         }
     }
 
@@ -149,13 +151,20 @@ struct PlayShuffleRow: View {
     let tracks: [SpotifyTrack]
     var queueTitle: String?
     var album: SpotifySimpleAlbum?
+    /// Топ артиста: после него — его другие песни и похожие; «Перемешать» — все песни артиста без повторов (Android 2.2.5).
+    var artistId: String?
 
     @EnvironmentObject private var player: PlayerController
 
+    private func origin(shuffle: Bool) -> PlayerController.Origin? {
+        if let id = artistId { return .artist(id, shuffleAll: shuffle) }
+        return album != nil ? .album : nil
+    }
+
     var body: some View {
         PlayButtonsRow(tracks: tracks.map { Track($0, album: album) },
-                       play: { player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: false) },
-                       shuffle: { player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: true) })
+                       play: { player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: false, origin: origin(shuffle: false)) },
+                       shuffle: { player.play(tracks.map { Track($0, album: album) }, title: queueTitle, shuffled: true, origin: origin(shuffle: true)) })
         .listRowBackground(Color.clear)
         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
     }

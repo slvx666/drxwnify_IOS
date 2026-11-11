@@ -79,11 +79,42 @@ final class PlayerController: NSObject, ObservableObject {
 
     // MARK: - Очередь: запуск
 
+    /// Откуда очередь: от этого зависит, что заиграет после неё (PLAY-007).
+    enum Origin {
+        /// Плейлист, лайки, история: после конца — тишина, как у плейлистов на Android.
+        case list
+        /// Альбом или один трек: дальше радио похожих артистов.
+        case album
+        /// Топ артиста: его другие песни, потом похожие; `shuffleAll` — «Перемешать» без повторов.
+        case artist(String, shuffleAll: Bool)
+        /// Свой источник продолжения («Для тебя»).
+        case radio(RadioSource)
+    }
+
+    /// Каталог для радио (ставит `AppEnvironment`).
+    var catalog: SpotifyAPI?
+    /// Чем продолжается очередь; `nil` — ничем.
+    private var radio: RadioSource?
+    private var extending = false
+    private var radioRounds = 0
+
     /// Заменяет очередь и начинает с `startIndex` (или со случайного трека при `shuffled`).
-    func play(_ tracks: [Track], startIndex: Int = 0, title: String? = nil, shuffled: Bool? = nil) {
+    /// Один трек без контекста продолжается радио, как `SpotifyQueue` на Android.
+    func play(_ tracks: [Track], startIndex: Int = 0, title: String? = nil, shuffled: Bool? = nil, origin: Origin? = nil) {
         guard !tracks.isEmpty else { return }
         queue = tracks
         queueTitle = title
+        RecommendedTracks.shared.clear()
+        radioRounds = 0
+        extending = false
+        switch origin ?? (tracks.count == 1 ? .album : .list) {
+        case .list: radio = nil
+        case .album: radio = catalog.map { ListRadio(original: tracks, api: $0) }
+        case .artist(let id, let all): radio = catalog.map { ArtistRadio(artistId: id, shuffleAll: all, api: $0) }
+        case .radio(let source):
+            radio = source
+            RecommendedTracks.shared.mark(tracks)
+        }
         if let s = shuffled, s != shuffle {
             shuffle = s
             settings.set(PK.shuffleMode, s)
@@ -169,6 +200,7 @@ final class PlayerController: NSObject, ObservableObject {
         currentAudio = nil
         queue = []
         shuffleOrder = []
+        radio = nil
         currentIndex = nil
         queueTitle = nil
         isPlaying = false
@@ -186,6 +218,35 @@ final class PlayerController: NSObject, ObservableObject {
         dropPreload()
         schedulePreload()
         scheduleSave()
+        extendIfNeeded()
+    }
+
+    /// Автодогрузка (PLAY-007): за два трека до конца очередь продолжает радио. Выключается настройкой
+    /// «Автодогрузка» и, если включено «не догружать при повторе всего», повтором всего.
+    private func extendIfNeeded() {
+        guard let radio = radio, !extending, let c = currentIndex, settings.get(PK.autoLoadMore) ?? true else { return }
+        if repeatMode == .all && (settings.get(PK.disableLoadMoreWhenRepeatAll) ?? false) { return }
+        let position = shuffle ? (shuffleOrder.firstIndex(of: c) ?? 0) : c
+        guard queue.count - position - 1 <= 2, radioRounds < 200 else { return }
+        extending = true
+        radioRounds += 1
+        let queued = queue
+        Task { [weak self] in
+            let more = await radio.more(after: queued)
+            await MainActor.run {
+                guard let self = self else { return }
+                self.extending = false
+                guard self.radio === radio else { return }
+                let have = Set(self.queue.map { $0.id })
+                var seenKeys = Set(self.queue.map { RecentlyPlayed.keyOf($0) })
+                let fresh = more.filter { t in
+                    !have.contains(t.id) && !BlockedTracks.shared.isBlocked(t) && seenKeys.insert(RecentlyPlayed.keyOf(t)).inserted
+                }
+                guard !fresh.isEmpty else { return }
+                RecommendedTracks.shared.mark(fresh)
+                self.insert(fresh, at: self.queue.count, afterCurrentInShuffle: false)
+            }
+        }
     }
 
     // MARK: - Перемешивание и повтор
@@ -328,6 +389,7 @@ final class PlayerController: NSObject, ObservableObject {
         resetPlayCounter()
         loadArtwork(track)
         scheduleSave()
+        extendIfNeeded()
 
         // Следующий уже подготовлен — играем его без поиска.
         if let pre = preloaded, pre.index == index, startAt == 0, pre.audio.stream.expiresAt > Date().addingTimeInterval(30) {
@@ -365,6 +427,12 @@ final class PlayerController: NSObject, ObservableObject {
                 if Task.isCancelled { return }
                 await MainActor.run {
                     guard self.currentIndex == index, self.queue.indices.contains(index), self.queue[index].id == track.id else { return }
+                    // Рекомендованный трек ниже 120 kbps не играет (PLAY-010): дальше следующий.
+                    if !audio.isLocal, RecommendedTracks.shared.tooLow(track.id, bitrate: audio.stream.bitrate) {
+                        self.endBackgroundTask()
+                        self.fail(L("ios_low_quality_skipped"), index: index)
+                        return
+                    }
                     let item = self.makeItem(audio)
                     self.player.insert(item, after: nil)
                     self.adopt(item, audio)
@@ -473,6 +541,14 @@ final class PlayerController: NSObject, ObservableObject {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             if Task.isCancelled { return }
             guard let audio = try? await self.resolve(track), !Task.isCancelled else { return }
+            if !audio.isLocal, RecommendedTracks.shared.tooLow(track.id, bitrate: audio.stream.bitrate) {
+                // Рекомендация с плохим звуком убирается из очереди заранее.
+                await MainActor.run {
+                    guard let i = self.queue.firstIndex(where: { $0.id == track.id }), i != self.currentIndex else { return }
+                    self.remove(at: i)
+                }
+                return
+            }
             await MainActor.run {
                 guard self.preloaded == nil, self.nextIndex(auto: true) == n, self.queue.indices.contains(n),
                       self.queue[n].id == track.id, let cur = self.currentItem else { return }
@@ -530,6 +606,7 @@ final class PlayerController: NSObject, ObservableObject {
         loadArtwork(queue[pre.index])
         schedulePreload()
         scheduleSave()
+        extendIfNeeded()
         if sleepAtEndOfTrack { finishSleepTimer() }
     }
 
@@ -694,6 +771,7 @@ final class PlayerController: NSObject, ObservableObject {
         let threshold = min(max(length / 2, minimum), 240)
         guard playedSeconds >= min(threshold, max(length - 1, 1)) else { return }
         historyRecorded = true
+        RecentlyPlayed.shared.record(t)
         let played = Int64(playedSeconds * 1000)
         let db = database
         DispatchQueue.global(qos: .utility).async { SongStore.recordPlay(db, track: t, playTimeMs: played) }

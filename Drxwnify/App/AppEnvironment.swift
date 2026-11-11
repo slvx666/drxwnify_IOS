@@ -48,6 +48,7 @@ final class AppEnvironment: ObservableObject {
         spotify.settings = prefs.settings
         spotify.yandex = YandexAPI(settings: prefs.settings)
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
+        player.catalog = spotify
         BlockedTracks.shared.configure(prefs)
         lastfm = LastFM(settings: prefs.settings)
         library = LibraryStore(database: database)

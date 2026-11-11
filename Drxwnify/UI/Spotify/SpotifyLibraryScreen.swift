@@ -41,6 +41,25 @@ private struct SpotifyLibraryContent: View {
     @State private var summary = LibraryStore.Summary()
     @State private var creating = false
     @State private var newName = ""
+    /// Сетка 3 в ряд или список (LIB-002), как `spotify_library_grid` на Android.
+    @AppStorage("spotify_library_grid") private var grid = false
+    /// Порядок: недавние (как в аккаунте), дата добавления, по алфавиту, автор.
+    @AppStorage("library_sort") private var sortRaw = "RECENTS"
+    @ObservedObject private var pins = LibraryPins.shared
+
+    private enum Sort: String, CaseIterable {
+        case recents = "RECENTS", dateAdded = "DATE_ADDED", name = "NAME", creator = "CREATOR"
+        var title: String {
+            switch self {
+            case .recents: return L("lib_sort_recents")
+            case .dateAdded: return L("lib_sort_recently_added")
+            case .name: return L("lib_sort_alphabetical")
+            case .creator: return L("lib_sort_creator")
+            }
+        }
+    }
+
+    private var sort: Sort { Sort(rawValue: sortRaw) ?? .recents }
 
     /// Чья медиатека на экране: аккаунт Spotify или Яндекса (основной источник, как `Catalog.source`).
     private var userId: String {
@@ -158,8 +177,29 @@ private struct SpotifyLibraryContent: View {
         case .albums: filtered = all.filter { $0.kind == .album }
         case .artists: filtered = all.filter { $0.kind == .artist }
         }
-        // «Любимые треки» всегда первыми (LIB-011), остальное — в порядке Spotify.
-        return filtered.filter { $0.kind == .likedSongs } + filtered.filter { $0.kind != .likedSongs }
+        let sorted: [SpotifyLibraryEntry]
+        switch sort {
+        case .recents: sorted = filtered
+        case .dateAdded:
+            sorted = filtered.enumerated().sorted { a, b in
+                let x = a.element.addedAt ?? "", y = b.element.addedAt ?? ""
+                return x != y ? x > y : a.offset < b.offset
+            }.map { $0.element }
+        case .name: sorted = filtered.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .creator:
+            sorted = filtered.sorted { a, b in
+                let c = (a.creator ?? a.name).localizedCaseInsensitiveCompare(b.creator ?? b.name)
+                return c != .orderedSame ? c == .orderedAscending : a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            }
+        }
+        // «Любимые треки» всегда первыми (LIB-011), затем свои закрепления в порядке закрепления.
+        var order: [String: Int] = [:]
+        for (i, k) in pins.pinned.enumerated() { order[k] = i }
+        func rank(_ e: SpotifyLibraryEntry) -> Int { e.kind == .likedSongs ? -1 : (order[LibraryPins.key(e)] ?? Int.max) }
+        return sorted.enumerated().sorted { a, b in
+            let ra = rank(a.element), rb = rank(b.element)
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }.map { $0.element }
     }
 
     private var list: some View {
@@ -195,9 +235,23 @@ private struct SpotifyLibraryContent: View {
                     }
                 }
             }
-            ForEach(entries) { entry in
-                NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
-                    SpotifyLibraryEntryRow(entry: entry)
+            if grid {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 14) {
+                    ForEach(entries) { entry in
+                        NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
+                            SpotifyLibraryEntryCell(entry: entry, pinnedHere: pins.pinned.contains(LibraryPins.key(entry)))
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .contextMenu { pinButton(entry) }
+                    }
+                }
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(entries) { entry in
+                    NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
+                        SpotifyLibraryEntryRow(entry: entry, pinnedHere: pins.pinned.contains(LibraryPins.key(entry)))
+                    }
+                    .contextMenu { pinButton(entry) }
                 }
             }
 
@@ -230,12 +284,39 @@ private struct SpotifyLibraryContent: View {
         }
     }
 
-    /// Строка под фишками: порядок («Недавние»), новый плейлист, обновить.
+    @ViewBuilder private func pinButton(_ entry: SpotifyLibraryEntry) -> some View {
+        if entry.kind != .likedSongs {
+            Button(action: {
+                pins.toggle(LibraryPins.key(entry))
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }) {
+                if pins.pinned.contains(LibraryPins.key(entry)) {
+                    Label(L("library_unpinned"), systemImage: "pin.slash")
+                } else {
+                    Label(L("library_pinned"), systemImage: "pin")
+                }
+            }
+        }
+    }
+
+    /// Строка под фишками: порядок, вид (список/сетка), новый плейлист, обновить.
     private var toolsRow: some View {
         HStack(spacing: 18) {
-            Text(L("lib_sort_recents")).font(.subheadline.weight(.medium))
-            Image(systemName: "arrow.down").font(.caption.weight(.semibold))
+            Menu {
+                ForEach(Sort.allCases, id: \.self) { s in
+                    Button(action: { sortRaw = s.rawValue }) {
+                        if s == sort { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.arrow.down").font(.caption.weight(.semibold))
+                    Text(sort.title).font(.subheadline.weight(.medium))
+                }
+            }
             Spacer()
+            Button(action: { grid.toggle() }) { Image(systemName: grid ? "list.bullet" : "square.grid.3x3") }
+                .buttonStyle(BorderlessButtonStyle())
             Button(action: { creating = true }) { Image(systemName: "plus") }
                 .buttonStyle(BorderlessButtonStyle())
             Button(action: { reload(force: true) }) { Image(systemName: "arrow.clockwise") }
@@ -266,6 +347,8 @@ private struct SpotifyLibraryContent: View {
 
 struct SpotifyLibraryEntryRow: View {
     let entry: SpotifyLibraryEntry
+    /// Закреплено на этом телефоне.
+    var pinnedHere = false
 
     private var subtitle: String {
         switch entry.kind {
@@ -292,8 +375,8 @@ struct SpotifyLibraryEntryRow: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
-                    if entry.pinned {
-                        Image(systemName: "pin.fill").font(.caption2).foregroundColor(.green)
+                    if entry.pinned || pinnedHere {
+                        Image(systemName: "pin.fill").font(.caption2).foregroundColor(pinnedHere ? .accentColor : .green)
                     }
                     Text(entry.kind == .likedSongs ? L("liked_songs") : entry.name).lineLimit(1)
                 }
@@ -301,6 +384,44 @@ struct SpotifyLibraryEntryRow: View {
             }
         }
         .padding(.vertical, 2)
+    }
+}
+
+/// Ячейка сетки библиотеки: обложка и название.
+struct SpotifyLibraryEntryCell: View {
+    let entry: SpotifyLibraryEntry
+    var pinnedHere = false
+
+    private var side: CGFloat { ((UIMetrics.width - 32 - 20) / 3).rounded(.down) }
+
+    var body: some View {
+        VStack(alignment: entry.kind == .artist ? .center : .leading, spacing: 4) {
+            cover
+                .overlay(pin, alignment: .topTrailing)
+            Text(entry.kind == .likedSongs ? L("liked_songs") : entry.name).font(.caption.weight(.semibold)).lineLimit(1)
+        }
+        .frame(width: side)
+    }
+
+    @ViewBuilder private var cover: some View {
+        if entry.kind == .likedSongs {
+            ZStack {
+                LinearGradient(colors: [.purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "heart.fill").font(.title).foregroundColor(.white)
+            }
+            .frame(width: side, height: side)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            ArtworkView(url: entry.imageUrl, size: side, cornerRadius: 8, circle: entry.kind == .artist,
+                        placeholderSymbol: entry.kind == .artist ? "person.fill" : (entry.kind == .folder ? "folder.fill" : "music.note.list"))
+        }
+    }
+
+    @ViewBuilder private var pin: some View {
+        if entry.pinned || pinnedHere {
+            Image(systemName: "pin.fill").font(.caption2).foregroundColor(.white)
+                .padding(5).background(Circle().fill(Color.black.opacity(0.55))).padding(4)
+        }
     }
 }
 

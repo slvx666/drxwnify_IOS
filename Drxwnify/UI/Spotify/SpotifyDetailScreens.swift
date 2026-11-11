@@ -105,7 +105,7 @@ struct SpotifyAlbumScreen: View {
                 PlayShuffleRow(tracks: album.tracks, queueTitle: album.name, album: album.simple)
                 ForEach(Array(album.tracks.enumerated()), id: \.offset) { index, track in
                     SpotifyTrackRow(track: track, number: index + 1, context: album.tracks, index: index,
-                                    queueTitle: album.name, album: album.simple, showPlayCount: true)
+                                    queueTitle: album.name, album: album.simple, showPlayCount: true, origin: .album)
                 }
             }
             if case .failed(let message) = loader.state {
@@ -145,6 +145,7 @@ struct SpotifyArtistScreen: View {
         var top: [SpotifyTrack]
         var discography: SpotifyArtistDiscography
         var related: [SpotifyArtist]
+        var appearsOn: [SpotifyAlbum] = []
     }
 
     @EnvironmentObject private var env: AppEnvironment
@@ -163,16 +164,25 @@ struct SpotifyArtistScreen: View {
                 )
                 GenreChips(artist: page.artist.name)
                 if !page.top.isEmpty {
-                    PlayShuffleRow(tracks: page.top, queueTitle: page.artist.name)
+                    PlayShuffleRow(tracks: page.top, queueTitle: page.artist.name, artistId: page.artist.id)
                     Section(header: Text(L("artist_top_tracks"))) {
                         ForEach(Array(page.top.prefix(10).enumerated()), id: \.offset) { i, t in
-                            SpotifyTrackRow(track: t, context: Array(page.top.prefix(10)), index: i, queueTitle: page.artist.name)
+                            SpotifyTrackRow(track: t, context: Array(page.top.prefix(10)), index: i, queueTitle: page.artist.name,
+                                            origin: .artist(page.artist.id, shuffleAll: false))
                         }
                     }
                 }
                 albumShelf(L("albums"), page.discography.albums)
                 albumShelf(L("singles_and_eps"), page.discography.singles)
                 albumShelf(L("ios_compilations"), page.discography.compilations)
+                if !page.appearsOn.isEmpty {
+                    Section(header: Text(L("artist_appears_on"))) {
+                        SpotifyShelf(items: page.appearsOn,
+                                     imageUrl: { $0.images.best(minWidth: 250) },
+                                     title: { $0.name },
+                                     subtitle: { $0.artistNames }) { SpotifyAlbumScreen(albumId: $0.id, name: $0.name) }
+                    }
+                }
                 if !page.related.isEmpty {
                     Section(header: Text(L("similar_artists"))) {
                         SpotifyShelf(items: page.related,
@@ -224,7 +234,8 @@ struct SpotifyArtistScreen: View {
             return Page(artist: artist,
                         top: (try? await api.artistTopTracks(id)) ?? [],
                         discography: (try? await api.artistDiscography(id)) ?? SpotifyArtistDiscography(),
-                        related: (try? await api.artistRelatedArtists(id)) ?? [])
+                        related: (try? await api.artistRelatedArtists(id)) ?? [],
+                        appearsOn: (try? await api.artistAppearsOn(id)) ?? [])
         }
     }
 }

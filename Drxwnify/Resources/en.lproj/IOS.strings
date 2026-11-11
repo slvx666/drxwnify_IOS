@@ -158,3 +158,4 @@
 "ios_export_m3u" = "Export as M3U";
 "ios_no_downloaded_selected" = "None of the selected tracks is downloaded";
 "ios_auto_download_like" = "Download when liked";
+"ios_low_quality_skipped" = "Recommendation below 120 kbps — skipping";

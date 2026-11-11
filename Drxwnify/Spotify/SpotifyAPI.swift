@@ -519,6 +519,18 @@ final class SpotifyAPI {
         )
     }
 
+    /// Релизы других артистов с участием этого (Spotify «Appears On», `relatedContent.appearsOn`), с их артистами.
+    func artistAppearsOn(_ artistId: String) async throws -> [SpotifyAlbum] {
+        if YandexIds.isYandex(artistId) { return [] }
+        var seen = Set<String>()
+        return (try await artistUnion(artistId).obj("relatedContent")?.obj("appearsOn")?.objects("items") ?? []).compactMap { item -> SpotifyAlbum? in
+            let release = item.obj("releases")?.objects("items").first ?? item
+            guard var album = parseRelease(release, type: release.str("type")?.lowercased() ?? "album"), seen.insert(album.id).inserted else { return nil }
+            album.artists = (release.obj("artists")?.objects("items") ?? []).compactMap(parseSimpleArtist)
+            return album
+        }
+    }
+
     func artistTopTracks(_ artistId: String) async throws -> [SpotifyTrack] {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.artistTopTracks(artistId) }
         let items = try await artistUnion(artistId).obj("discography")?.obj("topTracks")?.objects("items") ?? []
@@ -724,6 +736,25 @@ final class SpotifyAPI {
         return feed
     }
 
+    // MARK: - Новинки подписок (GQL: queryWhatsNewFeed), как `Spotify.newReleases`
+
+    func newReleases(limit: Int = 20, offset: Int = 0) async throws -> SpotifyPaging<SpotifyAlbum> {
+        let vars: JSONObject = ["offset": offset, "limit": limit, "onlyUnPlayedItems": false, "includedContentTypes": ["ALBUM"]]
+        let response = try await graphqlPost("queryWhatsNewFeed", variables: vars)
+        guard let feed = response.obj("data")?.obj("whatsNewFeedItems") else {
+            throw SpotifyError(statusCode: 500, message: "Invalid queryWhatsNewFeed response")
+        }
+        let albums = feed.objects("items").compactMap { item -> SpotifyAlbum? in
+            guard let content = item.obj("content"), content.str("__typename") == "AlbumResponseWrapper",
+                  let data = content.obj("data"), data.str("__typename") == "Album", let uri = data.str("uri") else { return nil }
+            return SpotifyAlbum(id: uri.substringAfterLast(":"), name: data.str("name") ?? "", albumType: data.str("albumType")?.lowercased(),
+                                artists: (data.obj("artists")?.objects("items") ?? []).compactMap(parseSimpleArtist),
+                                images: parseImages(data.obj("coverArt")?.arr("sources")),
+                                releaseDate: data.obj("date")?.str("isoString"), uri: uri)
+        }
+        return SpotifyPaging(items: albums, total: feed.int("totalCount") ?? 0, limit: limit, offset: offset)
+    }
+
     private func parseHomeItem(_ item: JSONObject) -> SpotifyHomeItem? {
         guard let content = item.obj("content"), let wrapper = content.str("__typename"),
               let data = content.obj("data"), let uri = data.str("uri") else { return nil }
@@ -731,8 +762,10 @@ final class SpotifyAPI {
         switch wrapper {
         case "PlaylistResponseWrapper":
             let image = data.obj("images")?.objects("items").first?.objects("sources").first?.str("url")
+            let owner = data.obj("ownerV2")?.obj("data")?.str("name")
+            let madeFor = data.objects("attributes").first { $0.str("key") == "madeFor.username" }?.str("value")
             return SpotifyHomeItem(kind: .playlist, id: id, uri: uri, name: data.str("name") ?? "",
-                                   subtitle: data.str("description") ?? data.obj("ownerV2")?.obj("data")?.str("name"), imageUrl: image)
+                                   subtitle: data.str("description") ?? owner, imageUrl: image, owner: owner, madeFor: madeFor)
         case "AlbumResponseWrapper":
             let artists = (data.obj("artists")?.objects("items") ?? []).compactMap(parseSimpleArtist).map { $0.name }
             return SpotifyHomeItem(kind: .album, id: id, uri: uri, name: data.str("name") ?? "",

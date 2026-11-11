@@ -156,6 +156,9 @@ struct SpotifyHomeItem: Hashable, Identifiable {
     var name: String
     var subtitle: String?
     var imageUrl: String?
+    /// Плейлист: владелец («Spotify» у миксов и редакторских) и «для кого» у личных миксов.
+    var owner: String?
+    var madeFor: String?
 }
 
 struct SpotifyHomeSection: Identifiable {
