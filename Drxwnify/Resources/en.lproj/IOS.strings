@@ -188,3 +188,6 @@
 "ios_wrapped_minutes" = "This year you listened for %d minutes";
 "ios_how_others_see" = "How others see me";
 "ios_auto_sleep" = "Automatic sleep timer";
+"ios_concerts_free" = "Free";
+"ios_concerts_from" = "from";
+"ios_concerts_enable_desc" = "Gigs tab in Library: concerts in Saint Petersburg";

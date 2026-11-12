@@ -27,6 +27,12 @@ struct SettingsScreen: View {
                 settingsLink(L("integrations"), "puzzlepiece", IntegrationsScreen(settings: env.prefs.settings))
                 settingsLink(L("app_update_title"), "arrow.down.app", AboutScreen())
                 settingsLink(L("suggest_title"), "lightbulb", SuggestionsScreen())
+                Toggle(isOn: Binding(get: { Concerts.isEnabled }, set: { env.prefs.shared("concerts").setBool($0, for: "enabled") })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(L("concerts_enable"))
+                        Text(L("ios_concerts_enable_desc")).font(.caption).foregroundColor(.secondary)
+                    }
+                }
                 settingsLink(L("about"), "info.circle", AboutScreen())
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()

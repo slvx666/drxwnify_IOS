@@ -188,3 +188,6 @@
 "ios_wrapped_minutes" = "В этом году ты слушал музыку %d минут";
 "ios_how_others_see" = "Как меня видят другие";
 "ios_auto_sleep" = "Автотаймер сна";
+"ios_concerts_free" = "Бесплатно";
+"ios_concerts_from" = "от";
+"ios_concerts_enable_desc" = "Вкладка «Афиша» в библиотеке: концерты Петербурга и Ленобласти";

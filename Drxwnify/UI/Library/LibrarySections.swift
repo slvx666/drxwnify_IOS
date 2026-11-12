@@ -177,3 +177,107 @@ struct VkPlaylistScreen: View {
         }
     }
 }
+
+/// «Афиша» — концерты Петербурга и Ленобласти (Android `ConcertsUi`): по дням, «все / бесплатные», жанр, тап — страница концерта.
+struct ConcertsSection: View {
+    @State private var concerts: [Concert] = []
+    @State private var loading = true
+    @State private var freeOnly = false
+    @State private var genre: String?
+
+    private var shown: [Concert] {
+        concerts.filter { c in (!freeOnly || c.isFree) && (genre.map { c.genres.contains($0) } ?? true) }
+    }
+
+    private var genres: [String] {
+        var count: [String: Int] = [:]
+        for c in concerts { for g in c.genres { count[g, default: 0] += 1 } }
+        return count.sorted { $0.value > $1.value }.prefix(12).map { $0.key }
+    }
+
+    private var days: [(String, [Concert])] {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: AppLanguage.current)
+        f.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
+        var out: [(String, [Concert])] = []
+        for c in shown {
+            let d = f.string(from: c.date).capitalized
+            if out.last?.0 == d { out[out.count - 1].1.append(c) } else { out.append((d, [c])) }
+        }
+        return out
+    }
+
+    var body: some View {
+        Group {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    pill(L("concerts_all_dates"), selected: !freeOnly && genre == nil) { freeOnly = false; genre = nil }
+                    pill(L("ios_concerts_free"), selected: freeOnly) { freeOnly.toggle() }
+                    ForEach(genres, id: \.self) { g in pill(g, selected: genre == g) { genre = genre == g ? nil : g } }
+                }
+                .padding(.horizontal, 16)
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            if loading && concerts.isEmpty { LoadStatusRow(isLoading: true, error: nil, retry: {}) }
+            if !loading && concerts.isEmpty { LoadStatusRow(isLoading: false, error: L("concerts_error"), retry: { load(force: true) }) }
+            ForEach(days, id: \.0) { day, list in
+                Text(day).font(.headline).foregroundColor(.accentColor).padding(.top, 8).listRowBackground(Color.clear)
+                ForEach(list) { c in row(c) }
+            }
+        }
+        .onAppear { load(force: false) }
+    }
+
+    private func pill(_ title: String, selected: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title).font(.subheadline.weight(.medium)).padding(.horizontal, 14).frame(height: 32)
+                .foregroundColor(selected ? Color(.systemBackground) : .primary)
+                .background(Capsule().fill(selected ? Color.accentColor : Color.secondary.opacity(0.22)))
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func priceText(_ p: Int) -> String { p == 0 ? L("ios_concerts_free") : L("ios_concerts_from") + " \(p) ₽" }
+
+    private func row(_ c: Concert) -> some View {
+        Button(action: { if let u = URL(string: c.url) { UIApplication.shared.open(u) } }) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(c.timeKnown ? Self.time.string(from: c.date) : "—").font(.subheadline.weight(.bold).monospacedDigit())
+                    .frame(width: 52, height: 48)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.accentColor.opacity(0.2)))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(c.title).font(.body.weight(.semibold)).lineLimit(2).foregroundColor(.primary)
+                    Text(c.locality.hasPrefix("Санкт") ? c.venue : c.venue + ", " + c.locality).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                    HStack(spacing: 6) {
+                        if let p = c.price {
+                            Text(priceText(p)).font(.caption.weight(.semibold)).foregroundColor(p == 0 ? .green : .accentColor)
+                        }
+                        if !c.genres.isEmpty {
+                            Text(c.genres.prefix(3).joined(separator: " · ")).font(.caption2).foregroundColor(.secondary).lineLimit(1)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .themedRow()
+    }
+
+    private static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        f.timeZone = TimeZone(identifier: "Europe/Moscow")
+        return f
+    }()
+
+    private func load(force: Bool) {
+        loading = true
+        Task {
+            let list = await Concerts.shared.load(force: force)
+            await MainActor.run { concerts = list; loading = false }
+        }
+    }
+}

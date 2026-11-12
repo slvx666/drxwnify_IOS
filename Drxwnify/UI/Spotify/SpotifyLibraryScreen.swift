@@ -16,7 +16,7 @@ private struct SpotifyLibraryContent: View {
     @ObservedObject var session: SpotifyTokenManager.State
 
     private enum Filter: String, CaseIterable, Identifiable {
-        case all, songs, playlists, albums, artists, reviews, vk
+        case all, songs, playlists, albums, artists, reviews, vk, concerts
         var id: String { rawValue }
 
         var title: String {
@@ -28,6 +28,7 @@ private struct SpotifyLibraryContent: View {
             case .artists: return L("filter_artists")
             case .reviews: return "drxwnslvt's"
             case .vk: return "VK"
+            case .concerts: return L("concerts_chip")
             }
         }
     }
@@ -226,7 +227,7 @@ private struct SpotifyLibraryContent: View {
         let filtered: [SpotifyLibraryEntry]
         switch filter {
         case .all: filtered = all
-        case .songs, .reviews, .vk: filtered = []
+        case .songs, .reviews, .vk, .concerts: filtered = []
         case .playlists: filtered = all.filter { $0.kind == .playlist || $0.kind == .folder || $0.kind == .likedSongs }
         case .albums: filtered = all.filter { $0.kind == .album }
         case .artists: filtered = all.filter { $0.kind == .artist }
@@ -268,7 +269,7 @@ private struct SpotifyLibraryContent: View {
                 .background(NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }.opacity(0))
                 .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
                 .listRowBackground(Color.clear)
-            if filter != .reviews && filter != .vk {
+            if filter != .reviews && filter != .vk && filter != .concerts {
                 toolsRow
                     .listRowBackground(Color.clear)
             }
@@ -287,6 +288,8 @@ private struct SpotifyLibraryContent: View {
                 ReviewsSection()
             } else if filter == .vk {
                 VkLibrarySection(vk: env.vk)
+            } else if filter == .concerts {
+                ConcertsSection()
             } else {
             if !isLinked {
                 loginRow
@@ -359,6 +362,7 @@ private struct SpotifyLibraryContent: View {
         var list: [Filter] = [.albums, .artists, .songs, .playlists]
         if env.friends.selfVerified { list.append(.reviews) }
         if env.vk.hasOwnAccount { list.append(.vk) }
+        if Concerts.isEnabled { list.append(.concerts) }
         return list
     }
 
