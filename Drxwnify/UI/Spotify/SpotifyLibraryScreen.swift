@@ -292,7 +292,7 @@ private struct SpotifyLibraryContent: View {
                 ConcertsSection()
             } else {
             if !isLinked {
-                loginRow
+                loginRow.themedRow()
                 NavigationLink(destination: IntegrationsScreen(settings: settings)) {
                     HStack(spacing: 12) {
                         Image(systemName: "y.circle.fill").font(.title2).foregroundColor(.yellow).frame(width: 48, height: 48)
@@ -314,6 +314,7 @@ private struct SpotifyLibraryContent: View {
                             }
                         }
                     }
+                    .themedRow()
                 }
             }
             if grid && (filter == .all || filter == .playlists) {

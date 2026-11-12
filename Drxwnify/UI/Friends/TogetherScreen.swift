@@ -75,9 +75,10 @@ private struct ChatsListView: View {
                 NavigationLink(destination: ChatScreen(peer: p.last.peer)) {
                     ChatPreviewRow(preview: p)
                 }
+                .themedRow()
             }
             if chats.previews.isEmpty {
-                Text(L("ios_chats_empty")).foregroundColor(.secondary)
+                Text(L("ios_chats_empty")).foregroundColor(.secondary).listRowBackground(Color.clear)
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
@@ -108,7 +109,7 @@ private struct ListenTogetherTab: View {
             Section(footer: Text(L("ios_listen_tab_hint"))) {
                 ForEach(live) { f in
                     HStack {
-                        NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }
+                        NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }.themedRow()
                         Button(action: { friends.startListenAlong(f.pubkey) }) {
                             Image(systemName: friends.listeningTo == f.pubkey ? "headphones.circle.fill" : "headphones")
                                 .font(.title3).foregroundColor(.accentColor)
@@ -244,7 +245,7 @@ private struct FriendsListView: View {
             }
             Section(header: Text("\(L("friends_title")) · \(friends.friends.count)")) {
                 ForEach(sortedFriends) { f in
-                    NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }
+                    NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }.themedRow()
                 }
                 if friends.friends.isEmpty {
                     Text(L("ios_friends_empty")).foregroundColor(.secondary)

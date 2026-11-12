@@ -160,7 +160,8 @@ struct RootView: View {
     }
 
     private func tabPage<Content: View>(_ content: Content) -> some View {
-        NavigationView { content }
+        // Фон экрана — цвет темы: иначе под строкой поиска, фишками и т. п. просвечивает системный чёрный.
+        NavigationView { content.background(AppTheme.rowBackground.ignoresSafeArea()) }
             .navigationViewStyle(StackNavigationViewStyle())
     }
 }
@@ -215,17 +216,21 @@ struct TabRootSignal: ViewModifier {
             .background(ChromeSignal(change: { delta in
                 if delta > 0 { env.rootVisible.insert(name) } else { env.rootVisible.remove(name) }
             }))
-            .background(BarsOnSwipe())
+            // В поиске шапка стоит: жест «прятать при прокрутке» там мешает нажатиям по фишкам и строке поиска.
+            .background(BarsOnSwipe(enabled: name != "search"))
     }
 }
 
 /// Верхняя панель (история, «Вместе», интеграции, настройки) уходит при прокрутке вниз и возвращается
 /// при прокрутке вверх, как на Android; только на корне вкладки — на вложенных экранах шапка стоит.
 private struct BarsOnSwipe: UIViewControllerRepresentable {
+    var enabled = true
+
     final class Controller: UIViewController {
+        var enabled = true
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
-            navigationController?.hidesBarsOnSwipe = true
+            navigationController?.hidesBarsOnSwipe = enabled
         }
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
@@ -233,8 +238,12 @@ private struct BarsOnSwipe: UIViewControllerRepresentable {
             navigationController?.setNavigationBarHidden(false, animated: true)
         }
     }
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) {}
+    func makeUIViewController(context: Context) -> Controller {
+        let c = Controller()
+        c.enabled = enabled
+        return c
+    }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.enabled = enabled }
 }
 
 private struct ChromeSignal: UIViewControllerRepresentable {

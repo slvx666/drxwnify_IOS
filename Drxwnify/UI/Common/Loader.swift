@@ -107,6 +107,10 @@ struct LoadStatusRow: View {
     let retry: () -> Void
 
     var body: some View {
+        content.listRowBackground(Color.clear)
+    }
+
+    @ViewBuilder private var content: some View {
         if let error = error {
             VStack(alignment: .leading, spacing: 8) {
                 Text(error).font(.footnote).foregroundColor(.secondary)
