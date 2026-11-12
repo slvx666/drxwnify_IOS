@@ -25,7 +25,18 @@ struct RootView: View {
 
     var body: some View {
         content
-            .onAppear { env.currentTab = Self.name(tab) }
+            .onAppear {
+                env.currentTab = Self.name(tab)
+                runDebugScreen()
+            }
+            .background(EmptyView().sheet(isPresented: Binding(get: { env.debugSheet != nil }, set: { if !$0 { env.debugSheet = nil } })) {
+                NavigationView { debugSheetContent }
+                    .navigationViewStyle(StackNavigationViewStyle())
+                    .environmentObject(env).environmentObject(player).environmentObject(env.likes)
+                    .environmentObject(env.downloads).environmentObject(env.friends).environmentObject(env.chats)
+                    .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
+            })
             .onChange(of: tab) { env.currentTab = Self.name($0) }
             .onChange(of: env.homeRequest) { _ in
                 showPlayer = false
@@ -115,9 +126,9 @@ struct RootView: View {
             // уходит сразу в начале перехода, и мини-плеер встаёт на её место (как на Android).
             ZStack(alignment: .bottom) {
                 ZStack {
-                    tabPage(HomeScreen().tabRoot("home")).opacity(tab == .home ? 1 : 0).allowsHitTesting(tab == .home)
-                    tabPage(SearchScreen().tabRoot("search")).opacity(tab == .search ? 1 : 0).allowsHitTesting(tab == .search)
-                    tabPage(LibraryScreen().tabRoot("library")).opacity(tab == .library ? 1 : 0).allowsHitTesting(tab == .library)
+                    tabPage(HomeScreen().tabRoot("home")).opacity(tab == .home ? 1 : 0).allowsHitTesting(tab == .home).accessibilityHidden(tab != .home)
+                    tabPage(SearchScreen().tabRoot("search")).opacity(tab == .search ? 1 : 0).allowsHitTesting(tab == .search).accessibilityHidden(tab != .search)
+                    tabPage(LibraryScreen().tabRoot("library")).opacity(tab == .library ? 1 : 0).allowsHitTesting(tab == .library).accessibilityHidden(tab != .library)
                 }
                 VStack(spacing: 0) {
                     if !env.chatOpen {
@@ -134,6 +145,42 @@ struct RootView: View {
             }
             .animation(.easeInOut(duration: 0.25), value: env.chromeHidden)
             .animation(.easeOut(duration: 0.2), value: env.chatOpen)
+        }
+    }
+
+    /// `DRX_SCREEN`: `home|search|library`, `search:<запрос>`, `library:<фильтр>`, `player`, `queue`,
+    /// `album:<id>`, `artist:<id>`, `playlist:<id>`, `settings`, `integrations`, `together`, `stats`, `history`.
+    private func runDebugScreen() {
+        guard let raw = ProcessInfo.processInfo.environment["DRX_SCREEN"], !raw.isEmpty else { return }
+        let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
+        let key = parts[0], arg = parts.count > 1 ? parts[1] : ""
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            switch key {
+            case "home": tab = .home
+            case "search":
+                tab = .search
+                if !arg.isEmpty { env.debugSearch = arg }
+            case "library":
+                tab = .library
+                if !arg.isEmpty { env.debugLibraryFilter = arg }
+            case "player": showPlayer = true
+            case "album": env.linkTarget = AppLinks.Target(kind: .album, id: arg, title: nil, by: nil)
+            case "artist": env.linkTarget = AppLinks.Target(kind: .artist, id: arg, title: nil, by: nil)
+            case "playlist": env.linkTarget = AppLinks.Target(kind: .playlist, id: arg, title: nil, by: nil)
+            default: env.debugSheet = key
+            }
+        }
+    }
+
+    @ViewBuilder private var debugSheetContent: some View {
+        switch env.debugSheet ?? "" {
+        case "settings": SettingsScreen()
+        case "integrations": IntegrationsScreen(settings: env.prefs.settings)
+        case "together": TogetherScreen()
+        case "stats": StatsScreen()
+        case "history": HistoryScreen()
+        case "concerts": List { ConcertsSection() }.listStyle(PlainListStyle())
+        default: Text(env.debugSheet ?? "")
         }
     }
 

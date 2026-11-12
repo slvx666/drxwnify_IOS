@@ -85,6 +85,10 @@ private struct SpotifyLibraryContent: View {
         }
         .onChange(of: userId) { _ in reloadIfNeeded() }
         .onChange(of: library.revision) { _ in reloadLocal() }
+        .onReceive(env.$debugLibraryFilter.compactMap { $0 }) { f in
+            if let v = Filter(rawValue: f) { filter = v }
+            env.debugLibraryFilter = nil
+        }
     }
 
     /// Без входа в Spotify библиотека показывает своё, а вход предлагается строкой сверху.

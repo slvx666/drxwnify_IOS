@@ -34,6 +34,12 @@ struct SearchScreen: View {
         }
         .rootTitle(L("search")) { TopBarIcons() }
         .onAppear { model.attach(env) }
+        .onReceive(env.$debugSearch.compactMap { $0 }) { q in
+            model.attach(env)
+            model.query = q
+            model.submit()
+            env.debugSearch = nil
+        }
     }
 
     private var searchField: some View {

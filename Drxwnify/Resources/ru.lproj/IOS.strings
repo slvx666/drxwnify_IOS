@@ -194,3 +194,6 @@
 "ios_search_hint" = "Исполнители, треки, альбомы, ссылки";
 "ios_search_genres" = "Жанры";
 "ios_top_result" = "Лучший результат";
+"ios_stats_week" = "Неделя";
+"ios_stats_month" = "Месяц";
+"ios_stats_year" = "Год";

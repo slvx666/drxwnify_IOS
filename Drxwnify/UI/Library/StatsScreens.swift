@@ -7,7 +7,7 @@ struct StatsScreen: View {
     @State private var stats = LibraryStore.Stats()
     @State private var showWrapped = false
 
-    private static let ranges: [(String, Double)] = [("past_week", 7), ("past_month", 30), ("past_year", 365), ("all_time", 0)]
+    private static let ranges: [(String, Double)] = [("ios_stats_week", 7), ("ios_stats_month", 30), ("ios_stats_year", 365), ("all_time", 0)]
 
     var body: some View {
         List {

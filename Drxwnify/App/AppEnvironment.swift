@@ -38,6 +38,10 @@ final class AppEnvironment: ObservableObject {
     @Published var chatOpen = false
     /// Кнопка «домой» в плеере: закрыть плеер и открыть главную.
     @Published var homeRequest = 0
+    /// Отладка без нажатий (`DRX_SCREEN` при запуске с ноута): что открыть. Пользователям не видно.
+    @Published var debugSearch: String?
+    @Published var debugLibraryFilter: String?
+    @Published var debugSheet: String?
     /// Открыть «Вместе» с главной (приглашение по ссылке, значок в шапке).
     @Published var showTogether = false
     /// Открытое меню трека (лист в `RootView`).

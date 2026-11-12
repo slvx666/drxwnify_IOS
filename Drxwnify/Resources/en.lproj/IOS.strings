@@ -194,3 +194,6 @@
 "ios_search_hint" = "Artists, tracks, albums, links";
 "ios_search_genres" = "Genres";
 "ios_top_result" = "Top result";
+"ios_stats_week" = "Week";
+"ios_stats_month" = "Month";
+"ios_stats_year" = "Year";

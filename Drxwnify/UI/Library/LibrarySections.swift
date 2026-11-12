@@ -201,7 +201,8 @@ struct ConcertsSection: View {
         f.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
         var out: [(String, [Concert])] = []
         for c in shown {
-            let d = f.string(from: c.date).capitalized
+            let raw = f.string(from: c.date)
+            let d = raw.prefix(1).uppercased() + raw.dropFirst()
             if out.last?.0 == d { out[out.count - 1].1.append(c) } else { out.append((d, [c])) }
         }
         return out
