@@ -28,10 +28,19 @@ struct TogetherScreen: View {
     }
 }
 
+/// Куда перейти из вкладок «Вместе». Ссылки внутри листаемого `TabView` на iOS 14–16 не срабатывают,
+/// поэтому строки только запоминают цель, а переход делает ссылка снаружи вкладок.
+final class TogetherNav: ObservableObject {
+    @Published var chat: String?
+    @Published var friend: String?
+    @Published var profile = false
+}
+
 /// Вкладки «Вместе», как на Android: Чаты, Друзья, Слушать вместе; листаются свайпом.
 private struct TogetherTabs: View {
     @EnvironmentObject private var chats: ChatHub
     @State private var page = 1
+    @StateObject private var nav = TogetherNav()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,7 +57,15 @@ private struct TogetherTabs: View {
                 ListenTogetherTab().tag(2)
             }
             .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+            .environmentObject(nav)
         }
+        .background(Group {
+            NavigationLink(destination: ChatScreen(peer: nav.chat ?? ""),
+                           isActive: Binding(get: { nav.chat != nil }, set: { if !$0 { nav.chat = nil } })) { EmptyView() }
+            NavigationLink(destination: FriendScreen(pubkey: nav.friend ?? ""),
+                           isActive: Binding(get: { nav.friend != nil }, set: { if !$0 { nav.friend = nil } })) { EmptyView() }
+            NavigationLink(destination: MyProfileScreen(), isActive: $nav.profile) { EmptyView() }
+        }.opacity(0))
     }
 
     private func tab(_ index: Int, _ title: String) -> some View {
@@ -68,13 +85,19 @@ private struct TogetherTabs: View {
 /// Вкладка «Чаты»: переписки по времени последнего сообщения.
 private struct ChatsListView: View {
     @EnvironmentObject private var chats: ChatHub
+    @EnvironmentObject private var nav: TogetherNav
 
     var body: some View {
         List {
             ForEach(chats.previews) { p in
-                NavigationLink(destination: ChatScreen(peer: p.last.peer)) {
-                    ChatPreviewRow(preview: p)
+                Button(action: { nav.chat = p.last.peer }) {
+                    HStack {
+                        ChatPreviewRow(preview: p)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(PlainButtonStyle())
                 .themedRow()
             }
             if chats.previews.isEmpty {
@@ -89,6 +112,7 @@ private struct ChatsListView: View {
 /// Вкладка «Слушать вместе»: друзья, которые сейчас слушают и разрешили слушать с ними.
 private struct ListenTogetherTab: View {
     @EnvironmentObject private var friends: FriendsHub
+    @EnvironmentObject private var nav: TogetherNav
 
     private var live: [FriendsHub.Friend] {
         friends.friends.filter { f in
@@ -109,7 +133,15 @@ private struct ListenTogetherTab: View {
             Section(footer: Text(L("ios_listen_tab_hint"))) {
                 ForEach(live) { f in
                     HStack {
-                        NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }.themedRow()
+                        Button(action: { nav.friend = f.pubkey }) {
+                        HStack {
+                            FriendRow(friend: f)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .themedRow()
                         Button(action: { friends.startListenAlong(f.pubkey) }) {
                             Image(systemName: friends.listeningTo == f.pubkey ? "headphones.circle.fill" : "headphones")
                                 .font(.title3).foregroundColor(.accentColor)
@@ -176,6 +208,7 @@ private struct CreateProfileView: View {
 private struct FriendsListView: View {
     @EnvironmentObject private var friends: FriendsHub
     @EnvironmentObject private var chats: ChatHub
+    @EnvironmentObject private var nav: TogetherNav
     @State private var showAdd = false
     @State private var shareItems: [Any]?
 
@@ -193,15 +226,19 @@ private struct FriendsListView: View {
         List {
             if let me = friends.profile {
                 Section {
-                    NavigationLink(destination: MyProfileScreen()) {
+                    Button(action: { nav.profile = true }) {
                         HStack(spacing: 12) {
                             FriendAvatar(name: me.name, avatar: me.avatar, size: 52)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(me.name.isEmpty ? L("ios_friends_no_name") : me.name).font(.headline)
+                                Text(me.name.isEmpty ? L("ios_friends_no_name") : me.name).font(.headline).foregroundColor(.primary)
                                 Text(L("ios_friends_my_profile")).font(.caption).foregroundColor(.secondary)
                             }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(.secondary)
                         }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(PlainButtonStyle())
                     HStack(spacing: 10) {
                         Button(action: { if let link = friends.inviteLink() { shareItems = [link] } }) {
                             Label(L("friends_invite_short"), systemImage: "link.badge.plus")
@@ -245,7 +282,15 @@ private struct FriendsListView: View {
             }
             Section(header: Text("\(L("friends_title")) · \(friends.friends.count)")) {
                 ForEach(sortedFriends) { f in
-                    NavigationLink(destination: FriendScreen(pubkey: f.pubkey)) { FriendRow(friend: f) }.themedRow()
+                    Button(action: { nav.friend = f.pubkey }) {
+                        HStack {
+                            FriendRow(friend: f)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .themedRow()
                 }
                 if friends.friends.isEmpty {
                     Text(L("ios_friends_empty")).foregroundColor(.secondary)

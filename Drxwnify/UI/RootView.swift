@@ -130,6 +130,8 @@ struct RootView: View {
                     tabPage(SearchScreen().tabRoot("search")).opacity(tab == .search ? 1 : 0).allowsHitTesting(tab == .search).accessibilityHidden(tab != .search)
                     tabPage(LibraryScreen().tabRoot("library")).opacity(tab == .library ? 1 : 0).allowsHitTesting(tab == .library).accessibilityHidden(tab != .library)
                 }
+                // Смена вкладки — плавное растворение, а не мгновенный скачок.
+                .animation(.easeInOut(duration: 0.22), value: tab)
                 VStack(spacing: 0) {
                     if !env.chatOpen {
                         MiniPlayerView(style: .classic, showPlayer: $showPlayer)
