@@ -12,6 +12,11 @@
   что нового и ограничения) → `powershell -ExecutionPolicy Bypass -File ios\scripts\release.ps1` (пуш ветки `ios`, тег `v<версия>`, релиз с `.ipa`
   на https://github.com/slvx666/drxwnify_IOS/releases) → `install.ps1` на телефон.
 - Репозиторий публичный: в коммиты не попадают токены, ключи, пароли, личные данные (проверять `git grep` перед пушем).
+- **Ноут как тихий сервер:** `sudo ~/drxwnify/ssh-only.sh on` — крышку можно закрыть, сон не наступит, экран гаснет, процессор экономит,
+  Bluetooth выключен; SSH и USB работают. `sudo ~/drxwnify/ssh-only.sh off` или перезагрузка — как было (исходник `scripts/laptop-ssh-only.sh`).
+- **Смотреть экраны iPhone без нажатий:** память `ios-screen-checks` — скриншоты `idevicescreenshot` (DDI 16.4 на ноуте) и запуск на нужном экране
+  `pymobiledevice3 developer dvt launch --env 'DRX_SCREEN=<экран>' com.drxwnify.ios.PNHU7KJ7PZ`. Accessibility-нажатия не работают и оставляют
+  зелёную рамку фокуса до перезагрузки iPhone — не использовать.
 
 ## Этапы
 
@@ -452,20 +457,24 @@ iPhone подключён к ноуту Arch (`slvt@192.168.0.140`, устано
 ## Промпт для нового чата
 
 ```
-https://github.com/slvx666/drxwnify_IOS — репозиторий iOS-версии (папка C:\Users\burger\Desktop\clavdiy\Drownify\ios, ветка ios).
-Продолжаем iOS-порт Drxwnify. Прочитай по порядку:
-1) C:\Users\burger\Desktop\clavdiy\Drownify\IOS_BUILD_PROMPT.md — правила задания (соблюдать все);
-2) ios\PROGRESS.md — таблица этапов, раздел «00. Сообщил пользователь» (чинить первым), «Как смотреть на iPhone», сверка с патчноутами (0а) и «Что осталось доделать»;
+https://github.com/slvx666/drxwnify_IOS — iOS-версия Drxwnify (папка C:\Users\burger\Desktop\clavdiy\Drownify\ios, ветка ios).
+Продолжаем: тестирование и полировка. Прочитай по порядку:
+1) C:\Users\burger\Desktop\clavdiy\Drownify\IOS_BUILD_PROMPT.md — правила;
+2) ios\PROGRESS.md — в начале как собирать/выкладывать/ставить, разделы «01», «02» (что сделано и что осталось), «Как смотреть на iPhone»;
 3) ios\DECISIONS.md и ios\KNOWN_ISSUES.md.
-Последняя сборка — 0.10.1, стоит на моём iPhone 8 (iOS 16.7).
-Первым делом — пункт 00: панель стикеров, меню трека «⋯» (все пункты Android), библиотека как на Android, все настройки Android
-и кнопка «Интеграции», рывки нижней панели и мини-плеера, мини-плеер не уходит в чате. Сверяй экраны вживую с Android
-(попроси подключить Android по проводу или дать адрес беспроводной отладки) и с iPhone (скриншоты и лог через ноут Arch,
-см. «Как смотреть на iPhone»; что нужно поставить на ноут — скажи мне командами). Скриншоты Android — ios\out\android-ref.
-Дальше по плану автономно: остатки этапов 5–8, 11–14. Нужен ВЕСЬ функционал Android, кроме запрещённого iOS.
-У части пользователей YouTube работает только через VPN, все сидят на VPN постоянно.
-Каждую готовую сборку: коммит в ios/ → поднять версию в project.yml → build.ps1 → release-notes → release.ps1 → install.ps1.
-Ключ Last.fm лежит в ios\secrets.xcconfig (вне git, не коммитить); Last.fm нужен для жанров, вход не убирать.
-Каталог ассетов (Assets.xcassets) на VM не собирается — нет симулятора; картинки класть файлами.
+Последняя сборка — 0.11.5, стоит на моём iPhone 8 (iOS 16.7).
+Задачи:
+А) Проверка на iOS 26+ в симуляторе Xcode на VM (dockur/macos, только SSH, см. правила). Сейчас на VM нет компонента iOS platform и
+   рантайма симулятора: поставь `xcodebuild -downloadPlatform iOS` (≈8 ГБ, предупреди меня перед загрузкой), собери Debug под симулятор
+   iOS 26, запусти через `xcrun simctl boot / install / launch`, снимай экраны `xcrun simctl io booted screenshot` и копируй на Windows;
+   переходи по экранам через переменную DRX_SCREEN (`SIMCTL_CHILD_DRX_SCREEN=<экран> xcrun simctl launch …`, список экранов —
+   RootView.runDebugScreen) и `xcrun simctl openurl booted drxwnify://…`. На iOS 26 своя ветка интерфейса: системный TabView +
+   tabViewBottomAccessory, стекло Liquid Glass — проверить всё, что правилось на iOS 16.
+Б) Полировка по моим замечаниям: я пишу, что не так; сверяй с Android (adb по проводу или Wi-Fi — спрошу адрес) и iPhone
+   (скриншоты через ноут, DRX_SCREEN). Меню «⋮» трека довести до Android.
+В) Остаток плана (PROGRESS, раздел 02): «Слушать вместе» по комнатам, эквалайзер, Telegram-афиши и уведомления, Яндекс «Все лайки».
+Каждую готовую сборку: коммит в ios/ → версия в project.yml → build.ps1 → release-notes → release.ps1 → install.ps1
+(ноут: sudo ~/drxwnify/ssh-only.sh on — можно закрыть крышку).
+Ключ Last.fm — ios\secrets.xcconfig (вне git). Каталог ассетов на VM не собирается — картинки файлами.
 Вопросы задавай по мере надобности.
 ```
