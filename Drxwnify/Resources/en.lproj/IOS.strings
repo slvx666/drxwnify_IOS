@@ -191,3 +191,6 @@
 "ios_concerts_free" = "Free";
 "ios_concerts_from" = "from";
 "ios_concerts_enable_desc" = "Gigs tab in Library: concerts in Saint Petersburg";
+"ios_search_hint" = "Artists, tracks, albums, links";
+"ios_search_genres" = "Genres";
+"ios_top_result" = "Top result";

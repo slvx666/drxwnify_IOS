@@ -249,55 +249,54 @@ struct ContentSettingsScreen: View {
     }
 }
 
-// MARK: - Интеграции (Android: `settings/integrations`)
+// MARK: - Интеграции (Android: `settings/integrations`, `IntegrationScreen.kt`)
+
+/// Строка интеграции как на Android: значок в плашке, название, подпись, галочка «подключено».
+private func integrationRow<D: View>(_ title: String, _ symbol: String, _ subtitle: String, connected: Bool, _ destination: D) -> some View {
+    NavigationLink(destination: destination) {
+        HStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundColor(.accentColor)
+                .frame(width: 38, height: 38)
+                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.accentColor.opacity(0.15)))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.body.weight(.medium))
+                Text(subtitle).font(.caption).foregroundColor(.secondary).lineLimit(2)
+            }
+            Spacer(minLength: 4)
+            if connected { Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundColor(.accentColor) }
+        }
+        .padding(.vertical, 4)
+    }
+}
 
 struct IntegrationsScreen: View {
     @EnvironmentObject private var env: AppEnvironment
     @ObservedObject var settings: TypedStore
-    @State private var showSpotifyLogin = false
-    @State private var showYandexLogin = false
-    @State private var confirmLogout = false
 
     private var spotifyLinked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty }
     private var yandexLinked: Bool { !(settings.get(PK.yandexAccessToken) ?? "").isEmpty }
     private var vkLinked: Bool { !(settings.get(PK.vkAccessToken) ?? "").isEmpty }
+    private var lastfmLinked: Bool { !(settings.get(PK.lastfmSession) ?? "").isEmpty }
 
     var body: some View {
         List {
             Section(header: Text(L("general"))) {
-                settingsLink(L("music_sources"), "antenna.radiowaves.left.and.right", MusicSourcesScreen(),
-                             subtitle: L("ios_integrations_sources_desc"))
+                integrationRow(L("music_sources"), "music.note.list", L("ios_integrations_sources_desc"), connected: false, MusicSourcesScreen())
+                integrationRow("Spotify", "music.note", L("integration_spotify_description"), connected: spotifyLinked,
+                               SpotifyAccountScreen(settings: settings))
+                integrationRow(L("yandex_music"), "y.circle", L("integration_yandex_description"), connected: yandexLinked,
+                               YandexAccountScreen(settings: settings))
+                integrationRow(L("vk_music"), "music.note.house", L("integration_vk_description"), connected: vkLinked,
+                               VkAccountScreen(settings: settings))
+                integrationRow("SoundCloud", "cloud", L("integration_soundcloud_description"), connected: false, SoundCloudImportScreen())
+                integrationRow("Last.fm", "dot.radiowaves.up.forward", L("ios_lastfm_genres_desc"), connected: lastfmLinked,
+                               LastFMSettingsScreen(settings: settings))
             }
-            Section(header: Text("Spotify")) {
-                if spotifyLinked {
-                    HStack {
-                        Label("Spotify", systemImage: "checkmark.circle.fill")
-                        Spacer()
-                        Text(settings.get(PK.spotifyUsername) ?? "").foregroundColor(.secondary).lineLimit(1)
-                    }
-                    PrefToggle(title: L("spotify_sync_likes"), key: PK.spotifySyncLikes, defaultValue: true, settings: settings)
-                    Button(L("action_logout")) { confirmLogout = true }.foregroundColor(.red)
-                } else {
-                    Button(action: { showSpotifyLogin = true }) { Label(L("spotify_login"), systemImage: "music.note") }
-                }
-            }
-            Section(header: Text(L("yandex_music"))) {
-                if yandexLinked {
-                    HStack {
-                        Label(L("yandex_music"), systemImage: "checkmark.circle.fill")
-                        Spacer()
-                        Text(settings.get(PK.yandexUsername) ?? "").foregroundColor(.secondary).lineLimit(1)
-                    }
-                    Button(L("ios_yandex_logout")) {
-                        settings.set(PK.yandexAccessToken, nil)
-                        settings.set(PK.yandexUid, nil)
-                        settings.set(PK.yandexUsername, nil)
-                        env.spotify.yandex?.logout()
-                    }
-                    .foregroundColor(.red)
-                } else {
-                    Button(action: { showYandexLogin = true }) { Label(L("yandex_login"), systemImage: "y.circle") }
-                }
+            Section {
+                integrationRow(L("import_playlist"), "square.and.arrow.down.on.square", L("import_no_download"), connected: false,
+                               ImportPlaylistScreen())
             }
             if spotifyLinked && yandexLinked {
                 Section(header: Text(L("ios_primary_source")), footer: Text(L("ios_primary_source_hint"))) {
@@ -309,13 +308,100 @@ struct IntegrationsScreen: View {
                     .pickerStyle(SegmentedPickerStyle())
                 }
             }
-            Section(header: Text(L("vk_music"))) {
-                if vkLinked {
-                    HStack {
-                        Label(L("vk_music"), systemImage: "checkmark.circle.fill")
-                        Spacer()
-                        Text(L("vk_connected")).foregroundColor(.secondary).lineLimit(1)
+            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
+        }
+        .listStyle(InsetGroupedListStyle())
+        .navigationTitle(L("integrations"))
+    }
+}
+
+/// Шапка экрана аккаунта: большой значок, название, состояние.
+private func accountHeader(_ symbol: String, _ title: String, _ status: String, connected: Bool) -> some View {
+    VStack(spacing: 8) {
+        Image(systemName: symbol).font(.system(size: 34, weight: .medium)).foregroundColor(.accentColor)
+            .frame(width: 76, height: 76)
+            .background(Circle().fill(Color.accentColor.opacity(0.15)))
+        Text(title).font(.title3.weight(.bold))
+        Text(status).font(.subheadline).foregroundColor(connected ? .accentColor : .secondary)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 10)
+    .listRowBackground(Color.clear)
+}
+
+struct SpotifyAccountScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
+    @ObservedObject var settings: TypedStore
+    @State private var showLogin = false
+    @State private var confirmLogout = false
+    private var linked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty }
+
+    var body: some View {
+        List {
+            accountHeader("music.note", "Spotify", linked ? (settings.get(PK.spotifyUsername) ?? L("vk_connected")) : L("spotify_login_description"), connected: linked)
+            Section {
+                if linked {
+                    PrefToggle(title: L("spotify_sync_likes"), key: PK.spotifySyncLikes, defaultValue: true, settings: settings)
+                    Button(L("action_logout")) { confirmLogout = true }.foregroundColor(.red)
+                } else {
+                    Button(action: { showLogin = true }) { Label(L("spotify_login"), systemImage: "person.crop.circle.badge.plus") }
+                }
+            }
+        }
+        .listStyle(InsetGroupedListStyle())
+        .navigationTitle("Spotify")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showLogin) { SpotifyLoginScreen().environmentObject(env) }
+        .alert(isPresented: $confirmLogout) {
+            Alert(title: Text(L("ios_spotify_logout_confirm")),
+                  primaryButton: .destructive(Text(L("action_logout"))) {
+                      let tokens = env.spotifyTokens
+                      Task { await tokens.logout() }
+                  },
+                  secondaryButton: .cancel())
+        }
+    }
+}
+
+struct YandexAccountScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
+    @ObservedObject var settings: TypedStore
+    @State private var showLogin = false
+    private var linked: Bool { !(settings.get(PK.yandexAccessToken) ?? "").isEmpty }
+
+    var body: some View {
+        List {
+            accountHeader("y.circle", L("yandex_music"), linked ? (settings.get(PK.yandexUsername) ?? L("vk_connected")) : L("integration_yandex_description"), connected: linked)
+            Section {
+                if linked {
+                    Button(L("ios_yandex_logout")) {
+                        settings.set(PK.yandexAccessToken, nil)
+                        settings.set(PK.yandexUid, nil)
+                        settings.set(PK.yandexUsername, nil)
+                        env.spotify.yandex?.logout()
                     }
+                    .foregroundColor(.red)
+                } else {
+                    Button(action: { showLogin = true }) { Label(L("yandex_login"), systemImage: "person.crop.circle.badge.plus") }
+                }
+            }
+        }
+        .listStyle(InsetGroupedListStyle())
+        .navigationTitle(L("yandex_music"))
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showLogin) { YandexLoginScreen().environmentObject(env) }
+    }
+}
+
+struct VkAccountScreen: View {
+    @ObservedObject var settings: TypedStore
+    private var linked: Bool { !(settings.get(PK.vkAccessToken) ?? "").isEmpty }
+
+    var body: some View {
+        List {
+            accountHeader("music.note.house", L("vk_music"), linked ? L("vk_connected") : L("integration_vk_description"), connected: linked)
+            Section {
+                if linked {
                     Button(L("ios_vk_logout")) {
                         settings.set(PK.vkAccessToken, nil)
                         settings.set(PK.vkUserId, nil)
@@ -325,34 +411,10 @@ struct IntegrationsScreen: View {
                     NavigationLink(destination: VkLoginScreen()) { Label(L("vk_login"), systemImage: "person.crop.circle.badge.plus") }
                 }
             }
-            Section(header: Text("SoundCloud")) {
-                settingsLink(L("soundcloud_import"), "cloud", SoundCloudImportScreen(), subtitle: L("ios_soundcloud_import_desc"))
-                settingsLink(L("import_playlist"), "square.and.arrow.down.on.square", ImportPlaylistScreen())
-            }
-            Section(header: Text("Last.fm")) {
-                settingsLink("Last.fm", "dot.radiowaves.up.forward", LastFMSettingsScreen(settings: settings),
-                             subtitle: settings.get(PK.lastfmUsername) ?? L("ios_lastfm_genres_desc"))
-            }
-            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(InsetGroupedListStyle())
-        .navigationTitle(L("integrations"))
-        .background(EmptyView().sheet(isPresented: $showYandexLogin) {
-            YandexLoginScreen().environmentObject(env)
-        })
-        .sheet(isPresented: $showSpotifyLogin) {
-            SpotifyLoginScreen().environmentObject(env)
-        }
-        .alert(isPresented: $confirmLogout) {
-            Alert(
-                title: Text(L("ios_spotify_logout_confirm")),
-                primaryButton: .destructive(Text(L("action_logout"))) {
-                    let tokens = env.spotifyTokens
-                    Task { await tokens.logout() }
-                },
-                secondaryButton: .cancel()
-            )
-        }
+        .navigationTitle(L("vk_music"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
