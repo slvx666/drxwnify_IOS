@@ -53,3 +53,10 @@ powershell -ExecutionPolicy Bypass -File ios\scripts\sim.ps1 shot home      # �
 5. `xcrun simctl runtime add x/AssetData/Restore/iOSSimulatorRuntime_Cryptex.dmg` → `iOS 26.5 (23F77) Ready`. Временные файлы удалить.
 
 Установлено 12.11.2026: iOS 26.5 (23F77), симулятор `Drxwnify-26` (iPhone 17), UDID `14AA429C-565F-497B-AA3F-6F0EC64EB3CB`.
+
+## После работы — выключить VM (пользователю нужна память)
+
+- `docker compose -f D:\macos\compose.yml stop`. Если Docker CLI завис (бывает) — выключить macOS изнутри, без пароля:
+  `ssh … georgefloyd@127.0.0.1 '~/bin/drx-gui "osascript -e \"tell application \\\"System Events\\\" to shut down\""'`;
+  контейнер завершится сам. Проверка: `wsl -d docker-desktop -u root free -m` — занято ~1 ГБ, `vmmemWSL` ~2–3 ГБ.
+- Перед Release-сборкой (`build.ps1`) симулятор выключать: `sim.ps1 cmd "xcrun simctl shutdown all"`.
