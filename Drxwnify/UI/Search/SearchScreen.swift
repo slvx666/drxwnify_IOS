@@ -21,6 +21,9 @@ struct SearchScreen: View {
     @StateObject private var model = SearchModel()
     @State private var filter = Filter.all
     @State private var confirmClear = false
+    /// Жанр, открытый с плитки. Один скрытый переход на весь список: `NavigationLink` в каждой плитке
+    /// на iOS 26 рисует шеврон «›» справа от каждой плитки.
+    @State private var openGenre: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -115,19 +118,22 @@ struct SearchScreen: View {
             Text(L("ios_search_genres")).font(.headline).padding(.top, 10).listRowBackground(Color.clear)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(Self.genres, id: \.0) { g, color in
-                    NavigationLink(destination: GenreScreen(genre: g)) {
+                    Button(action: { openGenre = g }) {
                         Text(g).font(.headline).foregroundColor(.white)
                             .frame(maxWidth: .infinity, minHeight: 64, alignment: .bottomLeading)
                             .padding(12)
                             .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(color))
                     }
-                    .buttonStyle(PlainButtonStyle())
+                    .buttonStyle(BorderlessButtonStyle())
                 }
             }
             .listRowBackground(Color.clear)
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
         .listStyle(PlainListStyle())
+        .background(NavigationLink(destination: GenreScreen(genre: openGenre ?? ""),
+                                   isActive: Binding(get: { openGenre != nil }, set: { if !$0 { openGenre = nil } })) { EmptyView() }
+                        .opacity(0))
         .alert(isPresented: $confirmClear) {
             Alert(title: Text(L("clear_search_history")), message: Text(L("clear_search_history_confirm")),
                   primaryButton: .destructive(Text(L("clear_search_history"))) { model.clearHistory() },

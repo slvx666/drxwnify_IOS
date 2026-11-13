@@ -34,6 +34,7 @@ struct RootView: View {
                     .navigationViewStyle(StackNavigationViewStyle())
                     .environmentObject(env).environmentObject(player).environmentObject(env.likes)
                     .environmentObject(env.downloads).environmentObject(env.friends).environmentObject(env.chats)
+                    .modifier(GlobalSheets(level: 1))
                     .preferredColorScheme(.dark)
                     .modifier(ThemedRoot(theme: AppTheme.current))
             })
@@ -65,39 +66,12 @@ struct RootView: View {
                 .environmentObject(env.downloads)
                 .environmentObject(env.friends)
                 .environmentObject(env.chats)
+                .modifier(GlobalSheets(level: 1))
                 .preferredColorScheme(.dark)
                     .modifier(ThemedRoot(theme: AppTheme.current))
             })
-            .background(EmptyView().sheet(item: $env.trackMenu) { req in
-                TrackMenuSheet(track: req.track,
-                               isCurrent: player.current?.id == req.track.id,
-                               navigate: { env.linkTarget = $0 },
-                               addToPlaylist: { env.addToPlaylist = TrackBatch(tracks: [req.track]) },
-                               removeTitle: req.removeTitle,
-                               onRemove: req.onRemove)
-                    .environmentObject(env)
-                    .environmentObject(player)
-                    .environmentObject(env.likes)
-                    .environmentObject(env.downloads)
-                    .preferredColorScheme(.dark)
-                    .modifier(ThemedRoot(theme: AppTheme.current))
-                    .modifier(MediumSheet())
-            })
-            .background(EmptyView().sheet(item: $env.trackSelection) { batch in
-                TrackSelectionSheet(tracks: batch.tracks)
-                    .environmentObject(env)
-                    .environmentObject(player)
-                    .environmentObject(env.downloads)
-                    .preferredColorScheme(.dark)
-                    .modifier(ThemedRoot(theme: AppTheme.current))
-            })
-            .background(EmptyView().sheet(item: $env.addToPlaylist) { batch in
-                AddToPlaylistSheet(batch: batch)
-                    .environmentObject(env)
-                    .environmentObject(env.downloads)
-                    .preferredColorScheme(.dark)
-                    .modifier(ThemedRoot(theme: AppTheme.current))
-            })
+            // Меню трека, «в плейлист», выбор треков — с корня, пока поверх не открыт другой лист (см. GlobalSheets).
+            .modifier(GlobalSheets(level: 0))
             .background(EmptyView().sheet(item: Binding(get: { suggestions.replies.first }, set: { _ in })) { reply in
                 SuggestionReplySheet(reply: reply).preferredColorScheme(.dark)
                     .modifier(ThemedRoot(theme: AppTheme.current))
@@ -153,10 +127,21 @@ struct RootView: View {
     /// `DRX_SCREEN`: `home|search|library`, `search:<запрос>`, `library:<фильтр>`, `player`, `queue`,
     /// `album:<id>`, `artist:<id>`, `playlist:<id>`, `settings`, `integrations`, `together`, `stats`, `history`.
     private func runDebugScreen() {
-        guard let raw = ProcessInfo.processInfo.environment["DRX_SCREEN"], !raw.isEmpty else { return }
+        #if DEBUG
+        DebugSnapshot.startIfRequested()
+        #endif
+        guard let full = ProcessInfo.processInfo.environment["DRX_SCREEN"], !full.isEmpty else { return }
+        // Шаги через «+», каждый следующий через 3 с: `album:<id>+menu` — открыть альбом, потом меню трека (как «⋮»).
+        let steps = full.split(separator: "+").map(String.init)
+        for (i, step) in steps.enumerated() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3 + 3 * Double(i)) { runDebugStep(step) }
+        }
+    }
+
+    private func runDebugStep(_ raw: String) {
         let parts = raw.split(separator: ":", maxSplits: 1).map(String.init)
         let key = parts[0], arg = parts.count > 1 ? parts[1] : ""
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+        do {
             switch key {
             case "home": tab = .home
             case "search":
@@ -169,6 +154,11 @@ struct RootView: View {
             case "album": env.linkTarget = AppLinks.Target(kind: .album, id: arg, title: nil, by: nil)
             case "artist": env.linkTarget = AppLinks.Target(kind: .artist, id: arg, title: nil, by: nil)
             case "playlist": env.linkTarget = AppLinks.Target(kind: .playlist, id: arg, title: nil, by: nil)
+            case "menu":
+                env.trackMenu = TrackMenuRequest(track: player.current ?? Track(
+                    id: "mfb:debug", catalogId: nil, title: "Debug track", artists: [Track.Artist(id: nil, name: "Debug")],
+                    albumId: nil, albumName: nil, durationMs: 180_000, artworkUrl: nil))
+            case "close": env.linkTarget = nil; env.debugSheet = nil; showPlayer = false
             default: env.debugSheet = key
             }
         }
@@ -473,21 +463,87 @@ struct RootTitleBar<Trailing: View>: ViewModifier {
     let trailing: Trailing
 
     func body(content: Content) -> some View {
-        content
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Text(title).font(.system(size: UIMetrics.isNarrow ? 22 : 24, weight: .bold)).lineLimit(1).fixedSize()
+        if #available(iOS 26.0, *) {
+            // iOS 26 кладёт каждый элемент панели на стеклянную капсулу — название вкладки выглядело кнопкой.
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+                        .sharedBackgroundVisibility(.hidden)
+                    ToolbarItem(placement: .navigationBarLeading) { titleText }
+                        .sharedBackgroundVisibility(.hidden)
+                    ToolbarItem(placement: .navigationBarTrailing) { trailing }
                 }
-                ToolbarItem(placement: .navigationBarTrailing) { trailing }
-            }
+        } else {
+            content
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+                    ToolbarItem(placement: .navigationBarLeading) { titleText }
+                    ToolbarItem(placement: .navigationBarTrailing) { trailing }
+                }
+        }
+    }
+
+    private var titleText: some View {
+        Text(title).font(.system(size: UIMetrics.isNarrow ? 22 : 24, weight: .bold)).lineLimit(1).fixedSize()
+            .allowsHitTesting(false)
     }
 }
 
 extension View {
     func rootTitle<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {
         modifier(RootTitleBar(title: title, trailing: trailing()))
+    }
+}
+
+/// Общие листы: меню трека, «Добавить в плейлист», выбор треков. Показывает их только самый верхний открытый экран:
+/// корень (`level` 0) или лист поверх него (`level` 1 — экран по ссылке, отладочный лист). Раньше их всегда показывал корень,
+/// и «⋮» у трека внутри альбома, открытого листом, на iOS 26 закрывало альбом, а на iOS 14–25 не открывалось вовсе
+/// (лист не может показать второй лист поверх своего же) — кнопка казалась неработающей до перезапуска.
+struct GlobalSheets: ViewModifier {
+    let level: Int
+    @EnvironmentObject private var env: AppEnvironment
+    @EnvironmentObject private var player: PlayerController
+
+    private var active: Bool { env.sheetLevel == level }
+
+    func body(content: Content) -> some View {
+        content
+            .background(EmptyView().sheet(item: Binding(get: { active ? env.trackMenu : nil },
+                                                        set: { if $0 == nil { env.trackMenu = nil } })) { req in
+                TrackMenuSheet(track: req.track,
+                               isCurrent: player.current?.id == req.track.id,
+                               navigate: { env.linkTarget = $0 },
+                               addToPlaylist: { env.addToPlaylist = TrackBatch(tracks: [req.track]) },
+                               removeTitle: req.removeTitle,
+                               onRemove: req.onRemove)
+                    .environmentObject(env)
+                    .environmentObject(player)
+                    .environmentObject(env.likes)
+                    .environmentObject(env.downloads)
+                    .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
+                    .modifier(MediumSheet())
+            })
+            .background(EmptyView().sheet(item: Binding(get: { active ? env.trackSelection : nil },
+                                                        set: { if $0 == nil { env.trackSelection = nil } })) { batch in
+                TrackSelectionSheet(tracks: batch.tracks)
+                    .environmentObject(env)
+                    .environmentObject(player)
+                    .environmentObject(env.downloads)
+                    .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
+            })
+            .background(EmptyView().sheet(item: Binding(get: { active ? env.addToPlaylist : nil },
+                                                        set: { if $0 == nil { env.addToPlaylist = nil } })) { batch in
+                AddToPlaylistSheet(batch: batch)
+                    .environmentObject(env)
+                    .environmentObject(env.downloads)
+                    .preferredColorScheme(.dark)
+                    .modifier(ThemedRoot(theme: AppTheme.current))
+            })
     }
 }

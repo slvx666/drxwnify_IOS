@@ -730,6 +730,10 @@ enum ChatNotifier {
     }
 
     static func requestPermission() {
+        #if DEBUG
+        // Проверка экранов на симуляторе (DRX_SCREEN): системный запрос закрыл бы экран, нажать его там нечем.
+        if ProcessInfo.processInfo.environment["DRX_SCREEN"] != nil { return }
+        #endif
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
     }
 }

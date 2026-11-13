@@ -26,6 +26,9 @@ final class AppEnvironment: ObservableObject {
     @Published var linkTarget: AppLinks.Target?
     /// Сколько открытых экранов прячут панель вкладок («Вместе», чат — как на Android).
     @Published var chromeHiders = 0
+    /// Открыт ли лист поверх корня (экран по ссылке, отладочный лист): общие листы показывает самый верхний (`GlobalSheets`).
+    /// Считается по состоянию, а не по onAppear/onDisappear — у содержимого листа onAppear бывает дважды.
+    var sheetLevel: Int { linkTarget != nil || debugSheet != nil ? 1 : 0 }
     /// Корни вкладок, которые сейчас на экране, и выбранная вкладка: своя нижняя панель видна только на корне (как на Android).
     @Published var rootVisible = Set<String>()
     @Published var currentTab = "home"
