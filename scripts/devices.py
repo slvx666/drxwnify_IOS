@@ -112,6 +112,12 @@ def wda_session():
     if not st:
         sys.exit('error: WebDriverAgent is not running (python ios/scripts/devices.py wda start)')
     sid = st.get('sessionId')
+    if sid:
+        # После переустановки приложения прежняя сессия WDA умирает (404) — тогда новая.
+        try:
+            wda('GET', f'/session/{sid}/wda/screen', timeout=5)
+        except Exception:
+            sid = None
     if not sid:
         sid = wda('POST', '/session', {'capabilities': {'alwaysMatch': {}}})['sessionId']
     return sid

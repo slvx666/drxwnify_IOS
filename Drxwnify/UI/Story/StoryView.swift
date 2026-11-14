@@ -78,16 +78,28 @@ struct StoryView: View {
     @State private var index = 0
     @State private var elapsed: TimeInterval = 0
     @State private var holding = false
+    @State private var pressing = false
     @State private var userPaused = false
     @State private var direction: CGFloat = 1
     @State private var shareItems: [Any]?
     @State private var resumeMain = false
     private let tick = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
-    init(story: Story, engine: AudioFallbackEngine, onClose: @escaping () -> Void) {
+    init(story: Story, engine: AudioFallbackEngine, local: ((Track) -> ResolvedAudio?)?, onClose: @escaping () -> Void) {
         self.story = story
         self.onClose = onClose
-        _audio = StateObject(wrappedValue: StoryAudio(engine: engine))
+        _audio = StateObject(wrappedValue: StoryAudio(engine: engine, local: local))
+    }
+
+    /// Трек страницы: свой, иначе — тот, что играл на прошлой (после жанров и на карточке трек не обрывается).
+    /// Страницы до первого трека (привет, минуты, день) — без музыки, как на Android.
+    private func track(at i: Int) -> Track? {
+        var j = i
+        while j >= 0 {
+            if let t = story.pages[j].track { return t }
+            j -= 1
+        }
+        return nil
     }
 
     private var page: Story.Page { story.pages[min(index, story.pages.count - 1)] }
@@ -109,7 +121,18 @@ struct StoryView: View {
         .gesture(DragGesture(minimumDistance: 30).onEnded { v in
             if v.translation.width < -40 { go(index + 1) } else if v.translation.width > 40 { go(index - 1) }
         })
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.25).onChanged { _ in holding = true }.sequenced(before: DragGesture(minimumDistance: 0)).onEnded { _ in holding = false })
+        // Удержание пальца дольше 0,25 с — пауза; отпустил — дальше. (LongPressGesture при коротком касании не присылал
+        // конца, и история навсегда вставала на паузу.)
+        .simultaneousGesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard !pressing else { return }
+                pressing = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { if pressing { holding = true } }
+            }
+            .onEnded { _ in
+                pressing = false
+                holding = false
+            })
         .onReceive(tick) { _ in
             guard !paused, let d = page.duration else { return }
             elapsed += 0.05
@@ -118,13 +141,14 @@ struct StoryView: View {
         .onAppear {
             resumeMain = env.player.isPlaying
             if resumeMain { env.player.pause() }
-            audio.play(page.track)
+            var seen = Set<String>()
+            audio.prepare(story.pages.compactMap { $0.track }.filter { seen.insert($0.id).inserted })
+            audio.play(track(at: index))
         }
         .onDisappear {
             audio.stop()
             if resumeMain { env.player.resume() }
         }
-        .onChange(of: paused) { audio.paused = $0 }
         .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) { ShareSheet(items: shareItems ?? []) }
         .statusBar(hidden: true)
     }
@@ -136,8 +160,7 @@ struct StoryView: View {
             index = i
             elapsed = 0
         }
-        // После жанров трек не обрывается: последняя страница продолжает тот же.
-        if let t = story.pages[i].track { audio.play(t) }
+        audio.play(track(at: i))
     }
 
     private var topBar: some View {

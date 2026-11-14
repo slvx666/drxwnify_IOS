@@ -8,7 +8,7 @@ struct StoryPresenter: ViewModifier {
     func body(content: Content) -> some View {
         content.fullScreenCover(isPresented: Binding(get: { story != nil }, set: { if !$0 { story = nil } })) {
             if let s = story {
-                StoryView(story: s, engine: env.audio) { story = nil }.environmentObject(env)
+                StoryView(story: s, engine: env.audio, local: env.player.localAudio) { story = nil }.environmentObject(env)
             }
         }
     }

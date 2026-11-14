@@ -90,6 +90,7 @@ struct VkLibrarySection: View {
                 }
             }
             .listRowBackground(Color.clear)
+            .listRowSeparatorHiddenCompat()
             if loading { LoadStatusRow(isLoading: true, error: nil, retry: {}) }
             if let e = error { LoadStatusRow(isLoading: false, error: e, retry: { load(force: true) }) }
             switch part {

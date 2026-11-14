@@ -45,7 +45,7 @@ enum StoryBuilder {
             pages.append(.one(pre1: L("story_tracks_count", s.tracks.count), pre2: L("story_tracks_tease"),
                               item: Story.Item(title: t.0.title, subtitle: t.0.artistNames, image: t.0.artworkUrl, note: L("story_played_times", t.1)),
                               track: t.0))
-            pages.append(.tracks(title: L("story_top_tracks"), items: tracks, track: s.tracks.count > 1 ? s.tracks[1].0 : t.0))
+            pages.append(.tracks(title: L("story_top_tracks"), items: tracks, track: t.0))
         }
         if let a = artists.first {
             let artistTrack = s.tracks.first { $0.0.artists.first?.name == a.name }?.0 ?? topTrack
@@ -84,7 +84,7 @@ enum StoryBuilder {
         var pages: [Story.Page] = [.hello(title: L("story_hello"), sub: L("story_service_sub", "Spotify", period))]
         if let t = tracks.first {
             pages.append(.one(pre1: L("story_service_track_pre"), pre2: period, item: trackItems[0], track: t))
-            pages.append(.tracks(title: L("story_service_tracks", period), items: Array(trackItems), track: tracks.count > 1 ? tracks[1] : t))
+            pages.append(.tracks(title: L("story_service_tracks", period), items: Array(trackItems), track: t))
         }
         if let a = tops.artists.first {
             let t = tracks.first { $0.artists.contains { $0.name == a.name } } ?? tracks.first
@@ -108,7 +108,7 @@ enum StoryBuilder {
                           extra: best.map { L("story_likes_month", ServiceStats.monthLabel($0.key, full: true), $0.count) }))
         if let t = tracks.first {
             pages.append(.one(pre1: L("story_service_track_pre"), pre2: period, item: trackItems[0], track: t))
-            pages.append(.tracks(title: L("story_service_tracks", period), items: Array(trackItems), track: tracks.count > 1 ? tracks[1] : t))
+            pages.append(.tracks(title: L("story_service_tracks", period), items: Array(trackItems), track: t))
         }
         if let a = st.artists.first {
             let t = tracks.first { $0.artists.contains { $0.name == a.name } } ?? tracks.first

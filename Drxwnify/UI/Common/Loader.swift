@@ -107,7 +107,7 @@ struct LoadStatusRow: View {
     let retry: () -> Void
 
     var body: some View {
-        content.listRowBackground(Color.clear)
+        content.listRowBackground(Color.clear).listRowSeparatorHiddenCompat()
     }
 
     @ViewBuilder private var content: some View {

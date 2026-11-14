@@ -265,10 +265,16 @@ final class LibraryStore: ObservableObject {
             let list = try tracks(db, rows)
             out.tracks = zip(rows, list).map { ($1, $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
             out.artists = try Row.fetchAll(db, sql: """
-                SELECT a.name, a.spotifyId, a.thumbnailUrl, COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e
+                SELECT a.name, a.spotifyId,
+                    -- Фото исполнителя, если оно есть в базе, иначе обложка его самого слушаемого трека за период (как на Android).
+                    COALESCE(NULLIF(a.thumbnailUrl, ''), (SELECT s2.thumbnailUrl FROM event e2 JOIN song s2 ON s2.id = e2.songId
+                        JOIN song_artist_map m2 ON m2.songId = e2.songId AND m2.position = 0
+                        WHERE m2.artistId = a.id AND e2.timestamp >= ? AND e2.timestamp < ? AND NULLIF(s2.thumbnailUrl, '') IS NOT NULL
+                        GROUP BY e2.songId ORDER BY COUNT(*) DESC LIMIT 1)) AS thumbnailUrl,
+                    COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e
                 JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0 JOIN artist a ON a.id = m.artistId
                 WHERE e.timestamp >= ? AND e.timestamp < ? GROUP BY a.id ORDER BY n DESC, ms DESC LIMIT ?
-                """, arguments: [sinceMs, untilMs, limit]).map { ($0["name"] as String? ?? "", $0["spotifyId"], $0["thumbnailUrl"], $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
+                """, arguments: [sinceMs, untilMs, sinceMs, untilMs, limit]).map { ($0["name"] as String? ?? "", $0["spotifyId"], $0["thumbnailUrl"], $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
             out.albums = try Row.fetchAll(db, sql: """
                 SELECT s.albumName, s.albumId, MAX(s.thumbnailUrl) AS thumb, MAX(a.name) AS artist, SUM(e.playTime) AS ms FROM event e
                 JOIN song s ON s.id = e.songId

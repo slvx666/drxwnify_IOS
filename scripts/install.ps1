@@ -25,6 +25,8 @@ if (Test-Path $plume) {
     $local = Join-Path $env:TEMP "signed-$name"
     Remove-Item $local -Force -ErrorAction SilentlyContinue
     $env:RUST_LOG = 'error,plumesign=info'
+    # plumesign и pymobiledevice3 пишут журнал в stderr — в PowerShell 5.1 при Stop это считалось бы ошибкой.
+    $ErrorActionPreference = "Continue"
     "`r`n`r`n" | & $plume sign --package $Ipa --apple-id -o $local 2>&1 | Select-String 'Saved|ERROR' | ForEach-Object { Write-Host $_ }
     if (-not (Test-Path $local)) { throw "plumesign на ПК не подписал $name (вход в Apple ID: $plume account login -u ПОЧТА)" }
     # Открытое приложение (играет музыка) не даёт себя закрыть, и установка молча висит после загрузки — закрываем сами.

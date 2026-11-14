@@ -307,9 +307,11 @@ private struct SpotifyLibraryContent: View {
                 .background(NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }.opacity(0))
                 .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
                 .listRowBackground(Color.clear)
+                .listRowSeparatorHiddenCompat()  // разделители — только между альбомами/треками, не у шапки
             if filter != .reviews && filter != .vk && filter != .concerts && filter != .spotifyTab && filter != .yandexTab {
                 toolsRow
                     .listRowBackground(Color.clear)
+                    .listRowSeparatorHiddenCompat()
             }
             if searching {
                 HStack {
@@ -320,6 +322,7 @@ private struct SpotifyLibraryContent: View {
                 .padding(.horizontal, 10).frame(height: 36)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.15)))
                 .listRowBackground(Color.clear)
+                .listRowSeparatorHiddenCompat()
             }
 
             if filter == .reviews {
@@ -373,12 +376,13 @@ private struct SpotifyLibraryContent: View {
                     }
                 }
                 .listRowBackground(Color.clear)
+                .listRowSeparatorHiddenCompat()
             } else if yearSort && yearFilter == nil {
                 // Порядок «Год» списком: заголовок там, где начинается год (закреплённые сверху — без повторов).
                 ForEach(Array(yearRows.enumerated()), id: \.offset) { _, row in
                     if let y = row.year {
                         Text(String(y)).font(.headline).foregroundColor(.accentColor)
-                            .padding(.top, 8).listRowBackground(Color.clear)
+                            .padding(.top, 8).listRowBackground(Color.clear).listRowSeparatorHiddenCompat()
                     }
                     NavigationLink(destination: SpotifyLibraryEntryDestination(entry: row.entry)) {
                         SpotifyLibraryEntryRow(entry: row.entry, pinnedHere: pins.pinned.contains(LibraryPins.key(row.entry)), showYear: true)
@@ -407,7 +411,7 @@ private struct SpotifyLibraryContent: View {
                 LoadStatusRow(isLoading: true, error: nil, retry: {})
             }
             }
-            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
+            Color.clear.frame(height: 1).listRowBackground(Color.clear).listRowSeparatorHiddenCompat().miniPlayerInset()
         }
         .listStyle(PlainListStyle())
     }
