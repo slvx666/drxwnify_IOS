@@ -1,4 +1,5 @@
-﻿# Ставит свежий .ipa на iPhone, подключённый к ноуту Arch (plumesign, бесплатная подпись Apple ID).
+﻿# Ставит свежий .ipa на iPhone (plumesign, бесплатная подпись Apple ID): подпись на ПК, если есть D:\tools\plume\plumesign.exe,
+# иначе через ноут Arch.
 # Запуск: powershell -ExecutionPolicy Bypass -File ios\scripts\install.ps1 [-Ipa путь]
 # Требования: на ноуте ~/drxwnify/bin/plumesign с сохранённым входом в Apple ID; телефон разблокирован и доверяет ноуту.
 param(
@@ -16,6 +17,24 @@ if (-not $Ipa) {
 }
 if (-not $Ipa -or -not (Test-Path $Ipa)) { throw "Нет .ipa: сначала scripts\build.ps1" }
 $name = Split-Path $Ipa -Leaf
+
+# Основной путь: подпись на ПК (D:\tools\plume\plumesign.exe, Impactor 2.7.2, вход в Apple ID сохранён) и установка с ПК.
+$plume = "D:\tools\plume\plumesign.exe"
+$env:PYTHONPATH = 'D:\tools\pmd3'; $env:PYTHONUTF8 = '1'; $env:PYTHONIOENCODING = 'utf-8'
+if (Test-Path $plume) {
+    $local = Join-Path $env:TEMP "signed-$name"
+    Remove-Item $local -Force -ErrorAction SilentlyContinue
+    $env:RUST_LOG = 'error,plumesign=info'
+    "`r`n`r`n" | & $plume sign --package $Ipa --apple-id -o $local 2>&1 | Select-String 'Saved|ERROR' | ForEach-Object { Write-Host $_ }
+    if (-not (Test-Path $local)) { throw "plumesign на ПК не подписал $name (вход в Apple ID: $plume account login -u ПОЧТА)" }
+    # Открытое приложение (играет музыка) не даёт себя закрыть, и установка молча висит после загрузки — закрываем сами.
+    & python -m pymobiledevice3 developer dvt pkill Drxwnify 2>$null | Out-Null
+    & python -m pymobiledevice3 apps install $local
+    if ($LASTEXITCODE -ne 0) { throw "pymobiledevice3 не установил $local" }
+    Remove-Item $local -Force
+    Write-Host "УСТАНОВЛЕНО: $name (подпись и установка с ПК)"
+    exit 0
+}
 
 & $scp @opts $Ipa "${Laptop}:drxwnify/ipa/$name"
 if ($LASTEXITCODE -ne 0) { throw "Не удалось скопировать $name на ноут" }

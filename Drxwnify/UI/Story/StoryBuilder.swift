@@ -6,7 +6,7 @@ enum StoryBuilder {
     static func monthTitle(_ start: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: Locale.preferredLanguages.first ?? "ru")
-        f.setLocalizedDateFormatFromTemplate("LLLL yyyy")
+        f.dateFormat = "LLLL yyyy"  // «октябрь 2026», без «г.» шаблона (иначе «2026 г..» перед точкой в строке)
         return f.string(from: start)
     }
 
