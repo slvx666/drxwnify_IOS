@@ -68,6 +68,15 @@ struct TrackMenuSheet: View {
                             go(AppLinks.Target(kind: .album, id: albumId, title: track.albumName, by: nil))
                         }
                     }
+                    // Трек ВК без альбома или страницы исполнителя (загрузка): ищется официальный релиз (Android 2.3.0).
+                    if VkIds.fullId(track.catalogId) != nil {
+                        if (track.albumId ?? "").isEmpty {
+                            item(L("view_album"), "square.stack", subtitle: vkLooking == "album" ? L("vk_go_finding_album") : (vkMissing.contains("album") ? L("vk_go_album_not_found") : nil)) { vkGo(album: true) }
+                        }
+                        if !track.artists.contains(where: { !($0.id ?? "").isEmpty }) {
+                            item(L("view_artist"), "person", subtitle: vkLooking == "artist" ? L("vk_go_finding_artist") : (vkMissing.contains("artist") ? L("vk_go_artist_not_found") : track.artistNames)) { vkGo(album: false) }
+                        }
+                    }
                 }
                 group {
                     item(L("start_radio"), "dot.radiowaves.left.and.right") {
@@ -115,8 +124,32 @@ struct TrackMenuSheet: View {
 
     private var isBlocked: Bool { blocked.isBlocked(track) }
 
+    /// Что ищется для трека ВК («album»/«artist») и что не нашлось.
+    @State private var vkLooking: String?
+    @State private var vkMissing = Set<String>()
+
+    private func vkGo(album: Bool) {
+        guard vkLooking == nil, let catalog = env.spotify.vkCatalog, let id = track.catalogId else { return }
+        vkLooking = album ? "album" : "artist"
+        let t = track
+        Task {
+            let r = await catalog.release(trackId: id, title: t.title, artist: t.artists.first?.name ?? "", durationMs: t.durationMs)
+            await MainActor.run {
+                vkLooking = nil
+                if album, let a = r?.albumId {
+                    go(AppLinks.Target(kind: .album, id: a, title: r?.albumName, by: nil))
+                } else if !album, let a = r?.artistId {
+                    go(AppLinks.Target(kind: .artist, id: a, title: r?.artistName, by: nil))
+                } else {
+                    vkMissing.insert(album ? "album" : "artist")
+                }
+            }
+        }
+    }
+
     /// «Добавить в Spotify / Яндекс Музыку» по основному аккаунту, как на Android.
     private var likeKey: String {
+        if env.spotify.vkIsSource { return isLiked ? "like_remove_vk" : "like_add_vk" }
         if env.spotify.yandexIsSource { return isLiked ? "like_remove_yandex" : "like_add_yandex" }
         return isLiked ? "like_remove_spotify" : "like_add_spotify"
     }

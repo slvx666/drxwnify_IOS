@@ -282,3 +282,32 @@ struct ConcertsSection: View {
         }
     }
 }
+
+/// Вкладка другого привязанного аккаунта в библиотеке (Android 2.3.0): его медиатека целиком.
+struct AccountTabSection: View {
+    let source: CatalogSource
+    @EnvironmentObject private var env: AppEnvironment
+    @StateObject private var loader = Loader<[SpotifyLibraryEntry]>()
+
+    var body: some View {
+        Group {
+            ForEach(loader.value ?? []) { entry in
+                NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry, source: source)) {
+                    SpotifyLibraryEntryRow(entry: entry)
+                }
+                .themedRow()
+            }
+            if case .failed(let message) = loader.state {
+                LoadStatusRow(isLoading: false, error: message, retry: { load(force: true) })
+            } else if loader.isLoading {
+                LoadStatusRow(isLoading: true, error: nil, retry: {})
+            }
+        }
+        .onAppear { load(force: false) }
+    }
+
+    private func load(force: Bool) {
+        let api = env.spotify, s = source
+        loader.load(force: force) { try await api.libraryOf(s) }
+    }
+}

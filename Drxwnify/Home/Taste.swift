@@ -118,6 +118,7 @@ actor AccountLikes {
     }
 
     private func accountKey(_ api: SpotifyAPI) -> String {
+        if api.vkIsSource { return "vk" }
         if api.yandexIsSource { return "yandex" }
         return (api.settings?.get(PK.spotifySpDc) ?? "").isEmpty ? "" : "spotify"
     }

@@ -98,7 +98,7 @@ actor NightReviews {
 
     /// Альбом каталога по артисту и названию; найденный id запоминается.
     func findAlbum(_ review: Review, api: SpotifyAPI) async -> String? {
-        let key = "album:\(api.yandexIsSource ? "YANDEX" : "SPOTIFY"):\(review.id)"
+        let key = "album:\(MainAccount.shared.main?.rawValue ?? "SPOTIFY"):\(review.id)"
         if let id = defaults.string(forKey: key) { return id }
         let wantedTitle = Self.normalize(review.album)
         let wantedArtist = Self.normalize(review.artist)

@@ -297,16 +297,8 @@ struct IntegrationsScreen: View {
             Section {
                 integrationRow(L("import_playlist"), "square.and.arrow.down.on.square", L("import_no_download"), connected: false,
                                ImportPlaylistScreen())
-            }
-            if spotifyLinked && yandexLinked {
-                Section(header: Text(L("ios_primary_source")), footer: Text(L("ios_primary_source_hint"))) {
-                    Picker(L("ios_primary_source"), selection: Binding(get: { settings.get(PK.primaryMetadataSource) ?? "SPOTIFY" },
-                                                                      set: { settings.set(PK.primaryMetadataSource, $0) })) {
-                        Text("Spotify").tag("SPOTIFY")
-                        Text(L("yandex_music")).tag("YANDEX")
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                }
+                // «Статистика»: итоги месяца и числа приложения (Android 2.3.0).
+                integrationRow(L("app_stats_title"), "chart.bar", L("app_stats_desc"), connected: false, AppStatsScreen())
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
         }
@@ -342,9 +334,15 @@ struct SpotifyAccountScreen: View {
             Section {
                 if linked {
                     PrefToggle(title: L("spotify_sync_likes"), key: PK.spotifySyncLikes, defaultValue: true, settings: settings)
-                    Button(L("action_logout")) { confirmLogout = true }.foregroundColor(.red)
                 } else {
                     Button(action: { showLogin = true }) { Label(L("spotify_login"), systemImage: "person.crop.circle.badge.plus") }
+                }
+            }
+            if linked {
+                AccountCommonSection(source: .SPOTIFY)
+                Section(header: Text(L("account_section_account"))) {
+                    Button(L("login_switch_account")) { showLogin = true }
+                    Button(L("action_logout")) { confirmLogout = true }.foregroundColor(.red)
                 }
             }
         }
@@ -356,7 +354,10 @@ struct SpotifyAccountScreen: View {
             Alert(title: Text(L("ios_spotify_logout_confirm")),
                   primaryButton: .destructive(Text(L("action_logout"))) {
                       let tokens = env.spotifyTokens
-                      Task { await tokens.logout() }
+                      Task {
+                          await tokens.logout()
+                          await MainActor.run { MainAccount.shared.didUnlink(.SPOTIFY) }
+                      }
                   },
                   secondaryButton: .cancel())
         }
@@ -372,16 +373,21 @@ struct YandexAccountScreen: View {
     var body: some View {
         List {
             accountHeader("y.circle", L("yandex_music"), linked ? (settings.get(PK.yandexUsername) ?? L("vk_connected")) : L("integration_yandex_description"), connected: linked)
-            Section {
-                if linked {
+            if linked {
+                AccountCommonSection(source: .YANDEX)
+                Section(header: Text(L("account_section_account"))) {
+                    Button(L("login_switch_account")) { showLogin = true }
                     Button(L("ios_yandex_logout")) {
                         settings.set(PK.yandexAccessToken, nil)
                         settings.set(PK.yandexUid, nil)
                         settings.set(PK.yandexUsername, nil)
                         env.spotify.yandex?.logout()
+                        MainAccount.shared.didUnlink(.YANDEX)
                     }
                     .foregroundColor(.red)
-                } else {
+                }
+            } else {
+                Section {
                     Button(action: { showLogin = true }) { Label(L("yandex_login"), systemImage: "person.crop.circle.badge.plus") }
                 }
             }
@@ -394,20 +400,27 @@ struct YandexAccountScreen: View {
 }
 
 struct VkAccountScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
     @ObservedObject var settings: TypedStore
     private var linked: Bool { !(settings.get(PK.vkAccessToken) ?? "").isEmpty }
 
     var body: some View {
         List {
             accountHeader("music.note.house", L("vk_music"), linked ? L("vk_connected") : L("integration_vk_description"), connected: linked)
-            Section {
-                if linked {
+            if linked {
+                AccountCommonSection(source: .VK)
+                Section(header: Text(L("account_section_account"))) {
+                    NavigationLink(destination: VkLoginScreen()) { Text(L("login_switch_account")) }
                     Button(L("ios_vk_logout")) {
                         settings.set(PK.vkAccessToken, nil)
                         settings.set(PK.vkUserId, nil)
+                        env.spotify.vkCatalog?.invalidate()
+                        MainAccount.shared.didUnlink(.VK)
                     }
                     .foregroundColor(.red)
-                } else {
+                }
+            } else {
+                Section {
                     NavigationLink(destination: VkLoginScreen()) { Label(L("vk_login"), systemImage: "person.crop.circle.badge.plus") }
                 }
             }

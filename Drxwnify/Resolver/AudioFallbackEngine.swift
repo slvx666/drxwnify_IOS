@@ -199,6 +199,13 @@ final class AudioFallbackEngine {
     /// Кандидаты для трека, лучший первым. Пусто — нигде нет.
     func resolve(_ q: AudioQuery, forceRace: Bool = false, excluding: Set<AudioProviderId> = []) async -> [ProviderMatch] {
         let key = q.cacheKey
+        // 0. Трек каталога ВК называет свою загрузку (Android 2.3.0): звук без гонки; не сыграла — обычный поиск.
+        if !forceRace, let full = VkIds.fullId(q.catalogId), !excluding.contains(.VK), isEnabled(.VK), provider(.VK)?.isReady() == true,
+           !q.excludedTrackIds.contains(full) {
+            let direct = ProviderMatch(provider: .VK, trackId: full, title: q.title, artist: q.primaryArtist, durationMs: q.durationMs,
+                                       confidence: 1.0, thumbnailUrl: nil, qualityKbps: nil)
+            if !(await state.isFailed(direct)) { return [direct] }
+        }
         // 1. Память.
         if !forceRace, let mem = await state.memory[key] {
             var ok: [ProviderMatch] = []

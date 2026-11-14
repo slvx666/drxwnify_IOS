@@ -300,6 +300,32 @@ final class YandexAPI {
         return SpotifyPaging(items: items, total: refs.count, limit: limit, offset: offset)
     }
 
+    /// Новый закрытый плейлист в аккаунте Яндекса; возвращает его id (`ym_<uid>_<kind>`).
+    func createPlaylist(_ title: String) async throws -> String {
+        let u = try await requireUid()
+        guard let o = try await request("users/\(u)/playlists/create", form: ["title": title, "visibility": "private"]) as? JSONObject,
+              let p = Self.playlist(o) else { throw YandexError(status: 500, message: "Invalid playlist payload") }
+        return p.id
+    }
+
+    /// Треки в конец своего плейлиста (`change-relative`): Яндексу нужен и альбом каждого трека.
+    func addToPlaylist(_ playlistId: String, trackIds: [String]) async throws {
+        guard !trackIds.isEmpty, let (owner, kind) = YandexIds.parsePlaylist(playlistId) else { return }
+        let full = try await tracks(trackIds.map { YandexIds.raw($0) })
+        let current = try await object("users/\(owner)/playlists/\(kind)")
+        let revision = current.str("revision") ?? current.int("revision").map(String.init) ?? "1"
+        let count = current.int("trackCount") ?? current.objects("tracks").count
+        let items: [JSONObject] = full.map { t in
+            var o: JSONObject = ["id": YandexIds.raw(t.id)]
+            if let a = t.album?.id, !a.isEmpty { o["albumId"] = YandexIds.raw(a) }
+            return o
+        }
+        let diff: [JSONObject] = [["op": "insert", "at": count, "tracks": items]]
+        let data = try JSONSerialization.data(withJSONObject: diff)
+        _ = try await request("users/\(owner)/playlists/\(kind)/change-relative",
+                              form: ["diff": String(data: data, encoding: .utf8) ?? "[]", "revision": revision])
+    }
+
     func isAlbumLiked(_ id: String) async throws -> Bool {
         let u = try await requireUid()
         return try await array("users/\(u)/likes/albums").contains { o in

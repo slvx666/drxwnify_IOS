@@ -27,6 +27,8 @@ final class SpotifyHashes {
         "addToLibrary": "7c5a69420e2bfae3da5cc4e14cbc8bb3f6090f80afc00ffc179177f19be3f33d",
         "removeFromLibrary": "7c5a69420e2bfae3da5cc4e14cbc8bb3f6090f80afc00ffc179177f19be3f33d",
         "home": "23e37f2e58d82d567f27080101d36609009d8c3676457b1086cb0acc55b72a5d",
+        // Топы профиля (Android 2.3.0): в общий реестр не входит, при смене перечитывается из веб-плеера.
+        "userTopContent": "61b7353d3625780022dbc63d459eb64cd609e7e5e2a820f9160d65030efe2e15",
     ]
 
     private let settings: TypedStore
@@ -41,6 +43,16 @@ final class SpotifyHashes {
         if let cached = settings.get(PK.spotifyGqlHashesJson) {
             apply(Self.parse(cached))
         }
+        for op in ["userTopContent"] {
+            if let h = UserDefaults.standard.string(forKey: "gql_override_" + op) { hashes[op] = Entry(hash: h, previousHash: hashes[op]?.hash) }
+        }
+    }
+
+    /// Хеш, найденный в коде веб-плеера (для операций, которых нет в реестре).
+    func override(_ operation: String, _ hash: String) {
+        lock.lock(); defer { lock.unlock() }
+        hashes[operation] = Entry(hash: hash, previousHash: hashes[operation]?.hash)
+        UserDefaults.standard.set(hash, forKey: "gql_override_" + operation)
     }
 
     func hash(_ operation: String) -> String? {

@@ -40,6 +40,8 @@ private struct HomeContent: View {
                            isActive: Binding(get: { openFriend != nil }, set: { if !$0 { openFriend = nil } })) { EmptyView() }
         )
         .onAppear { model.load(env) }
+        // Сменили основной аккаунт — главная собирается заново (Android 2.3.0 `HomeFeed.markStale`).
+        .onReceive(MainAccount.shared.$revision.dropFirst()) { _ in model.load(env, force: true) }
         .onChange(of: settings.get(PK.spotifySpDc) ?? "") { _ in model.load(env, force: true) }
         // Восстановили копию (база заменена) — главная собирается заново, а не через 15 минут.
         .onReceive(env.database.$generation.dropFirst()) { _ in model.load(env, force: true) }

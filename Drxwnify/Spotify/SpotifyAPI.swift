@@ -16,14 +16,26 @@ final class SpotifyAPI {
 
     /// Яндекс Музыка: `ym_`-id идут туда (как `catalog/Catalog.kt` на Android).
     var yandex: YandexAPI?
+    /// ВК как каталог (Android 2.3.0): `src:VK:`/`vk_`/`vkar_`-id идут туда.
+    var vkCatalog: VkCatalog?
     var settings: TypedStore?
 
-    /// Яндекс кормит медиатеку и поиск: подключён только он или выбран основным при двух аккаунтах.
-    var yandexIsSource: Bool {
-        guard let y = yandex, y.isLinked else { return false }
-        let spotifyLinked = !(settings?.get(PK.spotifySpDc) ?? "").isEmpty
-        if !spotifyLinked { return true }
-        return settings?.get(PK.primaryMetadataSource) == "YANDEX"
+    /// Основной аккаунт кормит медиатеку, «Любимые» и поиск (`MainAccount`).
+    var yandexIsSource: Bool { yandex != nil && MainAccount.shared.main == .YANDEX }
+    var vkIsSource: Bool { vkCatalog != nil && MainAccount.shared.main == .VK }
+
+    /// Медиатека аккаунта, который не основной (вкладка в библиотеке).
+    func libraryOf(_ source: CatalogSource) async throws -> [SpotifyLibraryEntry] {
+        switch source {
+        case .YANDEX:
+            guard let y = yandex else { return [] }
+            return try await y.library()
+        case .VK:
+            guard let v = vkCatalog else { return [] }
+            return try await v.library()
+        case .SPOTIFY:
+            return try await spotifyLibraryAll(filter: nil, folderUri: nil)
+        }
     }
 
     private static func randomUserAgent() -> String {
@@ -358,9 +370,9 @@ final class SpotifyAPI {
 
     /// Вся медиатека целиком (или папка), страницами по 50.
     func myLibraryAll(filter: String? = nil, folderUri: String? = nil) async throws -> [SpotifyLibraryEntry] {
-        if yandexIsSource, let y = yandex {
+        if let other = vkIsSource ? CatalogSource.VK : (yandexIsSource ? CatalogSource.YANDEX : nil) {
             if folderUri != nil { return [] }
-            let all = try await y.library()
+            let all = try await libraryOf(other)
             switch filter {
             case "Playlists"?: return all.filter { $0.kind == .playlist || $0.kind == .likedSongs }
             case "Albums"?: return all.filter { $0.kind == .album }
@@ -368,6 +380,10 @@ final class SpotifyAPI {
             default: return all
             }
         }
+        return try await spotifyLibraryAll(filter: filter, folderUri: folderUri)
+    }
+
+    private func spotifyLibraryAll(filter: String?, folderUri: String?) async throws -> [SpotifyLibraryEntry] {
         var all: [SpotifyLibraryEntry] = []
         var offset = 0
         while true {
@@ -407,7 +423,9 @@ final class SpotifyAPI {
     // MARK: Плейлист (fetchPlaylist)
 
     func playlist(_ playlistId: String) async throws -> SpotifyPlaylist {
+        if playlistId == YandexIds.likedSongsId || playlistId == "liked_songs" { return SpotifyPlaylist(id: playlistId, name: L("liked_songs")) }
         if YandexIds.isYandex(playlistId), let y = yandex { return try await y.playlist(playlistId) }
+        if VkIds.isVk(playlistId), let v = vkCatalog { return try await v.playlist(playlistId) }
         let vars: JSONObject = ["uri": "spotify:playlist:\(playlistId)", "offset": 0, "limit": 25, "enableWatchFeedEntrypoint": true]
         let response = try await graphqlPost("fetchPlaylist", variables: vars)
         guard let p = response.obj("data")?.obj("playlistV2") else {
@@ -429,7 +447,10 @@ final class SpotifyAPI {
     }
 
     func playlistTracks(_ playlistId: String, limit: Int = 100, offset: Int = 0) async throws -> SpotifyPaging<SpotifyPlaylistTrack> {
+        if playlistId == YandexIds.likedSongsId, let y = yandex { return try await y.likedSongs(limit: limit, offset: offset) }
+        if playlistId == "liked_songs" { return try await spotifyLikedSongs(limit: limit, offset: offset) }
         if YandexIds.isYandex(playlistId), let y = yandex { return try await y.playlistTracks(playlistId, limit: limit, offset: offset) }
+        if VkIds.isVk(playlistId), let v = vkCatalog { return try await v.playlistTracks(playlistId, limit: limit, offset: offset) }
         let vars: JSONObject = ["uri": "spotify:playlist:\(playlistId)", "offset": offset, "limit": limit, "enableWatchFeedEntrypoint": false]
         let response = try await graphqlPost("fetchPlaylist", variables: vars)
         guard let content = response.obj("data")?.obj("playlistV2")?.obj("content") else {
@@ -448,7 +469,12 @@ final class SpotifyAPI {
     // MARK: Любимые треки (fetchLibraryTracks)
 
     func likedSongs(limit: Int = 50, offset: Int = 0) async throws -> SpotifyPaging<SpotifyPlaylistTrack> {
+        if vkIsSource, let v = vkCatalog { return try await v.likedSongs(limit: limit, offset: offset) }
         if yandexIsSource, let y = yandex { return try await y.likedSongs(limit: limit, offset: offset) }
+        return try await spotifyLikedSongs(limit: limit, offset: offset)
+    }
+
+    private func spotifyLikedSongs(limit: Int, offset: Int) async throws -> SpotifyPaging<SpotifyPlaylistTrack> {
         let response = try await graphqlPost("fetchLibraryTracks", variables: ["offset": offset, "limit": limit])
         guard let tracksData = response.obj("data")?.obj("me")?.obj("library")?.obj("tracks") else {
             throw SpotifyError(statusCode: 500, message: "Invalid fetchLibraryTracks response")
@@ -480,6 +506,7 @@ final class SpotifyAPI {
 
     private func fetchAlbum(_ albumId: String) async throws -> SpotifyAlbum {
         if YandexIds.isYandex(albumId), let y = yandex { return try await y.album(albumId) }
+        if VkIds.isVk(albumId), let v = vkCatalog { return try await v.album(albumId) }
         let vars: JSONObject = ["uri": "spotify:album:\(albumId)", "locale": "", "offset": 0, "limit": 50]
         let response = try await graphqlPost("getAlbum", variables: vars)
         guard let data = response.obj("data")?.obj("albumUnion") else {
@@ -541,6 +568,7 @@ final class SpotifyAPI {
 
     func artist(_ artistId: String) async throws -> SpotifyArtist {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.artist(artistId) }
+        if VkIds.isVk(artistId), let v = vkCatalog { return try await v.artist(artistId) }
         let data = try await artistUnion(artistId)
         return SpotifyArtist(id: artistId, name: data.obj("profile")?.str("name") ?? "",
                              images: parseImages(data.obj("visuals")?.obj("avatarImage")?.arr("sources")),
@@ -552,6 +580,7 @@ final class SpotifyAPI {
 
     func artistDiscography(_ artistId: String) async throws -> SpotifyArtistDiscography {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.artistDiscography(artistId) }
+        if VkIds.isVk(artistId), let v = vkCatalog { return try await v.artistDiscography(artistId) }
         let disco = try await artistUnion(artistId).obj("discography")
         func group(_ key: String, _ type: String) -> [SpotifyAlbum] {
             var seen = Set<String>()
@@ -572,7 +601,7 @@ final class SpotifyAPI {
 
     /// Релизы других артистов с участием этого (Spotify «Appears On», `relatedContent.appearsOn`), с их артистами.
     func artistAppearsOn(_ artistId: String) async throws -> [SpotifyAlbum] {
-        if YandexIds.isYandex(artistId) { return [] }
+        if YandexIds.isYandex(artistId) || VkIds.isVk(artistId) { return [] }
         var seen = Set<String>()
         return (try await artistUnion(artistId).obj("relatedContent")?.obj("appearsOn")?.objects("items") ?? []).compactMap { item -> SpotifyAlbum? in
             let release = item.obj("releases")?.objects("items").first ?? item
@@ -584,12 +613,14 @@ final class SpotifyAPI {
 
     func artistTopTracks(_ artistId: String) async throws -> [SpotifyTrack] {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.artistTopTracks(artistId) }
+        if VkIds.isVk(artistId), let v = vkCatalog { return try await v.artistTopTracks(artistId) }
         let items = try await artistUnion(artistId).obj("discography")?.obj("topTracks")?.objects("items") ?? []
         return items.compactMap { $0.obj("track").map { parseTrack($0) } }
     }
 
     func artistRelatedArtists(_ artistId: String) async throws -> [SpotifyArtist] {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.similarArtists(artistId) }
+        if VkIds.isVk(artistId) { return [] }
         let items = try await artistUnion(artistId).obj("relatedContent")?.obj("relatedArtists")?.objects("items") ?? []
         return items.compactMap { item in
             guard let uri = item.str("uri"), let name = item.obj("profile")?.str("name") else { return nil }
@@ -601,7 +632,26 @@ final class SpotifyAPI {
     // MARK: - Поиск (GQL: searchDesktop)
 
     func search(_ query: String, limit: Int = 20, offset: Int = 0) async throws -> SpotifySearchResult {
+        if vkIsSource, let v = vkCatalog { return try await v.search(query, limit: limit) }
         if yandexIsSource, let y = yandex { return try await y.search(query, limit: limit) }
+        return try await spotifySearch(query, limit: limit, offset: offset)
+    }
+
+    /// Поиск в каталоге конкретного сервиса (лайк в другой аккаунт, перенос).
+    func searchIn(_ source: CatalogSource, _ query: String, limit: Int = 10) async throws -> SpotifySearchResult {
+        switch source {
+        case .VK:
+            guard let v = vkCatalog else { return SpotifySearchResult() }
+            return try await v.search(query, limit: limit)
+        case .YANDEX:
+            guard let y = yandex else { return SpotifySearchResult() }
+            return try await y.search(query, limit: limit)
+        case .SPOTIFY:
+            return try await spotifySearch(query, limit: limit, offset: 0)
+        }
+    }
+
+    private func spotifySearch(_ query: String, limit: Int, offset: Int) async throws -> SpotifySearchResult {
         let vars: JSONObject = [
             "searchTerm": query, "offset": offset, "limit": limit, "numberOfTopResults": 5,
             "includeAudiobooks": false, "includeArtistHasConcertsField": false, "includePreReleases": false,
@@ -653,6 +703,7 @@ final class SpotifyAPI {
     // MARK: - Один трек (REST: tracks/<id>)
 
     func track(_ trackId: String) async throws -> SpotifyTrack {
+        if VkIds.isVk(trackId), let v = vkCatalog { return try await v.track(trackId) }
         if YandexIds.isYandex(trackId), let y = yandex { if let t = try await y.tracks([YandexIds.raw(trackId)]).first { return t }; throw YandexError(status: 404, message: "Track not found") }
         let data = try await restGet("tracks/\(trackId)")
         guard let o = JSON.object(data) else { throw SpotifyError(statusCode: 500, message: "Invalid track response") }
@@ -685,6 +736,7 @@ final class SpotifyAPI {
     /// Токен веб-плеера на многих аккаунтах не принимает запись через публичный REST, поэтому сначала мутация веб-плеера.
     func saveTrack(_ trackId: String) async throws {
         if YandexIds.isYandex(trackId), let y = yandex { return try await y.setLiked("track", id: trackId, liked: true) }
+        if VkIds.isVk(trackId), let v = vkCatalog { return try await v.saveTrack(trackId) }
         do {
             try await addToLibrary(["spotify:track:\(trackId)"])
         } catch {
@@ -694,6 +746,7 @@ final class SpotifyAPI {
 
     func removeTrack(_ trackId: String) async throws {
         if YandexIds.isYandex(trackId), let y = yandex { return try await y.setLiked("track", id: trackId, liked: false) }
+        if VkIds.isVk(trackId), let v = vkCatalog { return try await v.removeTrack(trackId) }
         do {
             try await removeFromLibrary(["spotify:track:\(trackId)"])
         } catch {
@@ -703,12 +756,14 @@ final class SpotifyAPI {
 
     func setFollowingArtist(_ artistId: String, follow: Bool) async throws {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.setLiked("artist", id: artistId, liked: follow) }
+        if VkIds.isVk(artistId) { return }
         try await restWrite(follow ? "PUT" : "DELETE", "me/following?type=artist&ids=\(artistId)")
         noteLibrary(artistId, follow)
     }
 
     func isFollowingArtist(_ artistId: String) async throws -> Bool {
         if YandexIds.isYandex(artistId), let y = yandex { return try await y.isArtistLiked(artistId) }
+        if VkIds.isVk(artistId) { return false }
         if await inLibrary(artistId) { return true }
         guard let data = try? await restGet("me/following/contains?type=artist&ids=\(artistId)") else { return false }
         return ((try? JSONSerialization.jsonObject(with: data)) as? [Bool])?.first ?? false
@@ -716,12 +771,14 @@ final class SpotifyAPI {
 
     func setAlbumSaved(_ albumId: String, saved: Bool) async throws {
         if YandexIds.isYandex(albumId), let y = yandex { return try await y.setLiked("album", id: albumId, liked: saved) }
+        if VkIds.isVk(albumId), let v = vkCatalog { return try await v.setAlbumSaved(albumId, saved: saved) }
         try await restWrite(saved ? "PUT" : "DELETE", "me/albums?ids=\(albumId)")
         noteLibrary(albumId, saved)
     }
 
     func isAlbumSaved(_ albumId: String) async throws -> Bool {
         if YandexIds.isYandex(albumId), let y = yandex { return try await y.isAlbumLiked(albumId) }
+        if VkIds.isVk(albumId), let v = vkCatalog { return try await v.isAlbumSaved(albumId) }
         if await inLibrary(albumId) { return true }
         guard let data = try? await restGet("me/albums/contains?ids=\(albumId)") else { return false }
         return ((try? JSONSerialization.jsonObject(with: data)) as? [Bool])?.first ?? false
@@ -729,6 +786,14 @@ final class SpotifyAPI {
 
     /// Какие из треков лежат в «Любимых треках» аккаунта (по 50 за запрос).
     func tracksSaved(_ trackIds: [String]) async throws -> [String: Bool] {
+        // ВК: по «Моей музыке».
+        if let v = vkCatalog, trackIds.contains(where: { VkIds.isVk($0) }) {
+            var result: [String: Bool] = [:]
+            for id in trackIds where VkIds.isVk(id) { result[id] = await v.isTrackSaved(id) }
+            let rest = trackIds.filter { !VkIds.isVk($0) }
+            if !rest.isEmpty { for (k, val) in try await tracksSaved(rest) { result[k] = val } }
+            return result
+        }
         if let y = yandex, trackIds.contains(where: { YandexIds.isYandex($0) }) {
             var result: [String: Bool] = [:]
             let liked = Set((try? await y.likedTrackRefs())?.map { YandexIds.make($0.id) } ?? [])
@@ -755,6 +820,36 @@ final class SpotifyAPI {
             for (i, id) in chunk.enumerated() { result[id] = i < flags.count ? flags[i] : false }
         }
         return result
+    }
+
+    // MARK: - Запись плейлистов (перенос, Android 2.3.0 `RemotePlaylists`)
+
+    /// Новый закрытый плейлист в аккаунте Spotify (REST `POST me/playlists`); возвращает его id.
+    func createPlaylist(_ name: String) async throws -> String {
+        guard let token = await tokens.token() else { throw SpotifyError(statusCode: 401, message: "Not authenticated") }
+        var request = URLRequest(url: URL(string: Self.restBase + "me/playlists")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        for (k, v) in baseHeaders(token: token) { request.setValue(v, forHTTPHeaderField: k) }
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["name": name, "description": "", "public": false])
+        let r = try await HTTP.send(request)
+        guard r.isSuccess, let id = JSON.object(r.data)?.str("id") else {
+            throw SpotifyError(statusCode: r.status, message: "Spotify refused to create the playlist (\(r.status))")
+        }
+        return id
+    }
+
+    /// Треки в конец плейлиста (мутация веб-плеера `addToPlaylist`), по 100.
+    func addTracksToPlaylist(_ playlistId: String, trackIds: [String]) async throws {
+        var i = 0
+        while i < trackIds.count {
+            let chunk = trackIds[i..<min(i + 100, trackIds.count)].map { "spotify:track:\($0)" }
+            let vars: JSONObject = ["playlistUri": "spotify:playlist:\(playlistId)", "playlistItemUris": chunk,
+                                    "newPosition": ["moveType": "BOTTOM_OF_PLAYLIST", "fromUid": NSNull()] as JSONObject]
+            _ = try await graphqlPost("addToPlaylist", variables: vars)
+            i += 100
+        }
     }
 
     private func restWrite(_ method: String, _ endpoint: String) async throws {
@@ -877,5 +972,81 @@ final class AlbumCache {
         if memory.count > 300 { memory.removeAll() }
         lock.unlock()
         if let data = try? JSONEncoder().encode(a) { try? data.write(to: file(a.id), options: .atomic) }
+    }
+}
+
+// MARK: - Топы профиля (Android 2.3.0: REST `me/top` отвечает 429 всем, поэтому GraphQL `userTopContent`)
+
+extension SpotifyAPI {
+    enum TopRange: String, CaseIterable {
+        case SHORT_TERM, MID_TERM, LONG_TERM
+        var title: String {
+            switch self {
+            case .SHORT_TERM: return L("stats_range_short")
+            case .MID_TERM: return L("stats_range_medium")
+            case .LONG_TERM: return L("stats_range_long")
+            }
+        }
+    }
+
+    private func topContent(_ range: TopRange, tracks: Bool, limit: Int) async throws -> JSONObject {
+        let input: JSONObject = ["offset": 0, "limit": min(100, limit), "sortBy": "AFFINITY", "timeRange": range.rawValue]
+        let vars: JSONObject = ["includeTopArtists": !tracks, "topArtistsInput": input, "includeTopTracks": tracks, "topTracksInput": input]
+        do {
+            return try await graphqlPost("userTopContent", variables: vars)
+        } catch let e as SpotifyError where e.statusCode == 412 {
+            // Хеш сменился с обновлением веб-плеера: достаём новый из его кода и повторяем один раз.
+            guard let fresh = await Self.topContentHashFromWebPlayer() else { throw e }
+            hashes.override("userTopContent", fresh)
+            return try await graphqlPost("userTopContent", variables: vars)
+        }
+    }
+
+    func topTracks(_ range: TopRange, limit: Int = 50) async throws -> [SpotifyTrack] {
+        let o = try await topContent(range, tracks: true, limit: limit)
+        let items = o.obj("data")?.obj("me")?.obj("profile")?.obj("topTracks")?.objects("items") ?? []
+        return items.compactMap { $0.obj("data") }.map { parseTrack($0, uriOverride: nil) }.filter { !$0.id.isEmpty }
+    }
+
+    func topArtists(_ range: TopRange, limit: Int = 50) async throws -> [SpotifyArtist] {
+        let o = try await topContent(range, tracks: false, limit: limit)
+        let items = o.obj("data")?.obj("me")?.obj("profile")?.obj("topArtists")?.objects("items") ?? []
+        return items.compactMap { $0.obj("data") }.compactMap { d -> SpotifyArtist? in
+            guard let uri = d.str("uri"), let name = d.obj("profile")?.str("name") else { return nil }
+            let images = (d.obj("visuals")?.obj("avatarImage")?.objects("sources") ?? []).compactMap { s -> SpotifyImage? in
+                s.str("url").map { SpotifyImage(url: $0, height: s.int("height"), width: s.int("width")) }
+            }
+            return SpotifyArtist(id: uri.substringAfterLast(":"), name: name, images: images, uri: uri)
+        }
+    }
+
+    /// Хеш `userTopContent` из кода веб-плеера: главная → web-player.<hash>.js → чанк xpui-routes-profile → хеш.
+    static func topContentHashFromWebPlayer() async -> String? {
+        let ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+        func get(_ url: String) async -> String? {
+            guard let u = URL(string: url) else { return nil }
+            var r = URLRequest(url: u)
+            r.timeoutInterval = 20
+            r.setValue(ua, forHTTPHeaderField: "User-Agent")
+            guard let resp = try? await HTTP.send(r), resp.isSuccess else { return nil }
+            return resp.text
+        }
+        func first(_ pattern: String, in text: String) -> [String] {
+            guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+            return re.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { m in
+                m.numberOfRanges > 1 ? Range(m.range(at: 1), in: text).map { String(text[$0]) } : nil
+            }
+        }
+        guard let page = await get("https://open.spotify.com/"),
+              let player = first(#"web-player\.([0-9a-f]+)\.js"#, in: page).first,
+              let js = await get("https://open.spotifycdn.com/cdn/build/web-player/web-player.\(player).js"),
+              let chunk = first(#"(\d+):"xpui-routes-profile""#, in: js).first else { return nil }
+        for h in first("[,{]" + chunk + #":"([0-9a-f]{8})""#, in: js) {
+            if let profile = await get("https://open.spotifycdn.com/cdn/build/web-player/xpui-routes-profile.\(h).js"),
+               let hash = first(#""userTopContent","query","([0-9a-f]{64})""#, in: profile).first {
+                return hash
+            }
+        }
+        return nil
     }
 }

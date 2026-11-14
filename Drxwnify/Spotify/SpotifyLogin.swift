@@ -9,6 +9,8 @@ enum SpotifyLogin {
         let settings = env.prefs.settings
         onStep(.connecting)
         let token = try await SpotifyAuth.fetchAccessToken(spDc: spDc, spKey: spKey)
+        let wasLinked = MainAccount.shared.isLinked(.SPOTIFY)
+        let mainBefore = MainAccount.shared.main
         await env.spotifyTokens.saveSession(spDc: spDc, spKey: spKey, token: token)
 
         onStep(.loadingProfile)
@@ -25,9 +27,8 @@ enum SpotifyLogin {
         // Остальное включается только при первом подключении: повторный вход не трогает выбор пользователя.
         if settings.get(PK.spotifyHomeOnly) == nil { settings.set(PK.spotifyHomeOnly, true) }
         if settings.get(PK.spotifySyncLikes) == nil { settings.set(PK.spotifySyncLikes, true) }
-        if (settings.get(PK.yandexAccessToken) ?? "").isEmpty {
-            settings.set(PK.primaryMetadataSource, "SPOTIFY")
-        }
+        // Первое подключение Spotify делает его основным; перелогин основной не меняет (Android 2.3.0).
+        await MainActor.run { MainAccount.shared.didLink(.SPOTIFY, wasLinked: wasLinked, mainBefore: mainBefore) }
         onStep(.done)
     }
 

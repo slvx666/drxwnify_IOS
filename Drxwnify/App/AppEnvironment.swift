@@ -65,6 +65,8 @@ final class AppEnvironment: ObservableObject {
         spotify = SpotifyAPI(tokens: spotifyTokens, hashes: spotifyHashes)
         spotify.settings = prefs.settings
         spotify.yandex = YandexAPI(settings: prefs.settings)
+        spotify.vkCatalog = VkCatalog(vk: vk)
+        MainAccount.shared.configure(prefs.settings)
         likes = LikeManager(database: database, settings: prefs.settings, spotify: spotify)
         player.catalog = spotify
         BlockedTracks.shared.configure(prefs)
@@ -96,6 +98,7 @@ final class AppEnvironment: ObservableObject {
         wireFriends()
         // Ответы разработчика на предложку — немного после запуска, когда релеи подключатся.
         Suggestions.shared.friends = friends
+        RemotePlaylists.shared.configure(self)
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { Suggestions.shared.checkReplies() }
     }
 

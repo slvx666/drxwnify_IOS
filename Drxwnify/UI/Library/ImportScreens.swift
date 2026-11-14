@@ -19,8 +19,7 @@ struct ImportPlaylistScreen: View {
             if importer.running || importer.total > 0 {
                 ImportProgressSection()
             }
-            Section(footer: Text(L("import_links_supported") + "
-" + L("import_no_download"))) {
+            Section(footer: Text(L("import_links_supported") + "\n" + L("import_no_download"))) {
                 TextField(L("import_name"), text: $name)
                     .onChange(of: name) { _ in nameError = false }
                 if nameError {

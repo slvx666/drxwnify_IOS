@@ -141,7 +141,11 @@ struct VkLoginScreen: View {
     /// Сохраняет токен и сразу спрашивает у VK, открыт ли этому входу музыкальный API.
     private func save(token: String, userId: String?) {
         let s = env.prefs.settings
+        let wasLinked = MainAccount.shared.isLinked(.VK)
+        let mainBefore = MainAccount.shared.main
         s.set(PK.vkAccessToken, token)
+        MainAccount.shared.didLink(.VK, wasLinked: wasLinked, mainBefore: mainBefore)
+        env.spotify.vkCatalog?.invalidate()
         if let id = userId { s.set(PK.vkUserId, id) }
         working = true
         let vk = env.vk

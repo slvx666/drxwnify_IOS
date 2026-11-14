@@ -45,6 +45,23 @@
 
 ## Что осталось доделать
 
+### 2.3.0. Перенос Android 2.3.0 (ночь на 14.11.2026, 0.12.x) — по `android/docs/PORTING-2.3.0.md`
+Сделано (0.12.0–0.12.1):
+- ВК как каталог: `Catalog/VkCatalog.swift` (id `src:VK:`/`vk_`/`vkar_`/`vk_liked`), вызовы API в `VkProvider` (раздел «ВК как каталог»),
+  маршрутизация в `SpotifyAPI` по префиксу id; трек ВК играет свою загрузку без гонки (`AudioFallbackEngine.resolve`, шаг 0).
+- Основной аккаунт, вкладки, режим лайка: `Catalog/MainAccount.swift` (`primaryMetadataSource`, `accountTab_<SOURCE>`, `likeMode` —
+  те же ключи, что на Android, переносятся копией); `Catalog/CrossCatalog.swift`; страницы аккаунтов — `UI/Settings/AccountCommonSection.swift`.
+- «К альбому/исполнителю» у трека ВК: `VkCatalog.release` (у загрузки — официальный релиз поиском), пункты в `TrackMenuSheet`.
+- Перенос и создание плейлистов в аккаунте: `UI/Settings/AccountTransferScreen.swift`, `Catalog/RemotePlaylists.swift` (задачи в
+  `remote_playlists.json`), запись: Spotify `POST me/playlists` + мутация `addToPlaylist`, Яндекс `playlists/create` + `change-relative`, ВК.
+- Статистика и итоги: `Catalog/ServiceStats.swift` (Spotify `userTopContent`, хеш из веб-плеера — `SpotifyAPI.topContentHashFromWebPlayer`),
+  `UI/Story/` (сторис, звук `StoryAudio`), `UI/Settings/ServiceStatsScreen.swift` (+ `AppStatsScreen` в «Интеграциях»), предложение в `RootView`.
+- Импорт по ссылкам Яндекса, год альбомов, друзья по активности, история чатов после восстановления копии (`ChatHub.syncHistoryOnce`),
+  NIP-42 в `RelayPool`, аватарки друзей на телефоне, профиль раз в 3 дня.
+Не проверено на телефоне: всё из 2.3.0 (нужны входы в аккаунты — делает пользователь). Не сделано: пометки «нет в аккаунте» в библиотеке,
+экран прогресса созданий плейлистов (Android `PushLocalPlaylistsScreen` — на iOS одна кнопка «создать все»).
+Установка: iPhone теперь подключён к ПК — `install.ps1` подписывает на ноуте и ставит с ПК (pymobiledevice3).
+
 Порядок — по важности. Идентификаторы — из `spec/FEATURES.md` (делать всё, где колонка iOS `да`/`частично`).
 
 ### 00. Сообщил пользователь 11.11.2026 (на 0.10.0) — чинить первым, сверяя с Android вживую

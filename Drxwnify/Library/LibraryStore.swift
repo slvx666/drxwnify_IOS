@@ -252,30 +252,60 @@ final class LibraryStore: ObservableObject {
     }
 
     /// Статистика прослушиваний с момента `sinceMs` (HOME-100…104): время, топ треков, исполнителей, альбомов.
-    func stats(sinceMs: Int64, limit: Int = 50) -> Stats {
+    func stats(sinceMs: Int64, untilMs: Int64 = Int64.max, limit: Int = 50) -> Stats {
         read(Stats()) { db in
             var out = Stats()
-            if let r = try Row.fetchOne(db, sql: "SELECT COUNT(*) AS n, COALESCE(SUM(playTime), 0) AS ms FROM event WHERE timestamp >= ?", arguments: [sinceMs]) {
+            if let r = try Row.fetchOne(db, sql: "SELECT COUNT(*) AS n, COALESCE(SUM(playTime), 0) AS ms FROM event WHERE timestamp >= ? AND timestamp < ?", arguments: [sinceMs, untilMs]) {
                 out.plays = r["n"]; out.totalMs = r["ms"]
             }
             let rows = try Row.fetchAll(db, sql: """
                 SELECT \(Self.songColumns), COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e JOIN song ON song.id = e.songId
-                WHERE e.timestamp >= ? GROUP BY song.id ORDER BY ms DESC LIMIT ?
-                """, arguments: [sinceMs, limit])
+                WHERE e.timestamp >= ? AND e.timestamp < ? GROUP BY song.id ORDER BY n DESC, ms DESC LIMIT ?
+                """, arguments: [sinceMs, untilMs, limit])
             let list = try tracks(db, rows)
             out.tracks = zip(rows, list).map { ($1, $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
             out.artists = try Row.fetchAll(db, sql: """
                 SELECT a.name, a.spotifyId, a.thumbnailUrl, COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e
                 JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0 JOIN artist a ON a.id = m.artistId
-                WHERE e.timestamp >= ? GROUP BY a.id ORDER BY ms DESC LIMIT ?
-                """, arguments: [sinceMs, limit]).map { ($0["name"] as String? ?? "", $0["spotifyId"], $0["thumbnailUrl"], $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
+                WHERE e.timestamp >= ? AND e.timestamp < ? GROUP BY a.id ORDER BY n DESC, ms DESC LIMIT ?
+                """, arguments: [sinceMs, untilMs, limit]).map { ($0["name"] as String? ?? "", $0["spotifyId"], $0["thumbnailUrl"], $0["n"] as Int, $0["ms"] as Int64? ?? 0) }
             out.albums = try Row.fetchAll(db, sql: """
                 SELECT s.albumName, s.albumId, MAX(s.thumbnailUrl) AS thumb, MAX(a.name) AS artist, SUM(e.playTime) AS ms FROM event e
                 JOIN song s ON s.id = e.songId
                 LEFT JOIN song_artist_map m ON m.songId = s.id AND m.position = 0 LEFT JOIN artist a ON a.id = m.artistId
-                WHERE e.timestamp >= ? AND s.albumName IS NOT NULL AND s.albumName != '' GROUP BY s.albumName ORDER BY ms DESC LIMIT ?
-                """, arguments: [sinceMs, limit]).map { ($0["albumName"] as String? ?? "", $0["albumId"], $0["thumb"], $0["artist"] as String? ?? "", $0["ms"] as Int64? ?? 0) }
+                WHERE e.timestamp >= ? AND e.timestamp < ? AND s.albumName IS NOT NULL AND s.albumName != '' GROUP BY s.albumName ORDER BY ms DESC LIMIT ?
+                """, arguments: [sinceMs, untilMs, limit]).map { ($0["albumName"] as String? ?? "", $0["albumId"], $0["thumb"], $0["artist"] as String? ?? "", $0["ms"] as Int64? ?? 0) }
             return out
+        }
+    }
+
+    /// Самый музыкальный день, любимый час и новые исполнители за период (итоги месяца, Android 2.3.0 `MonthReview`).
+    struct Habits {
+        var busiestDay: Date?
+        var busiestDayMs: Int64 = 0
+        var favoriteHour: Int?
+        var newArtists = 0
+    }
+
+    func habits(sinceMs: Int64, untilMs: Int64) -> Habits {
+        read(Habits()) { db in
+            var h = Habits()
+            let rows = try Row.fetchAll(db, sql: "SELECT timestamp, playTime FROM event WHERE timestamp >= ? AND timestamp < ?", arguments: [sinceMs, untilMs])
+            var days: [Date: Int64] = [:]
+            var hours: [Int: Int] = [:]
+            let cal = Calendar.current
+            for r in rows {
+                let d = Date(timeIntervalSince1970: Double(r["timestamp"] as Int64) / 1000)
+                days[cal.startOfDay(for: d), default: 0] += r["playTime"] as Int64? ?? 0
+                hours[cal.component(.hour, from: d), default: 0] += 1
+            }
+            if let best = days.max(by: { $0.value < $1.value }) { h.busiestDay = best.key; h.busiestDayMs = best.value }
+            h.favoriteHour = hours.max(by: { $0.value < $1.value })?.key
+            h.newArtists = try Int.fetchOne(db, sql: """
+                SELECT COUNT(*) FROM (SELECT m.artistId, MIN(e.timestamp) AS first FROM event e
+                JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0 GROUP BY m.artistId) WHERE first >= ? AND first < ?
+                """, arguments: [sinceMs, untilMs]) ?? 0
+            return h
         }
     }
 

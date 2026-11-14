@@ -36,6 +36,10 @@ final class RelayPool {
         var failures = 0
         var tokens = RelayPool.burst
         var tokensAt = Date()
+        /// NIP-42: вызов релея, id нашего AUTH и подписки, закрытые с «auth-required».
+        var challenge: String?
+        var authEventId: String?
+        var authClosed = Set<String>()
 
         init(url: String) { self.url = url }
     }
@@ -60,6 +64,8 @@ final class RelayPool {
 
     /// Вызывается, когда какой-нибудь релей открылся (чаты досылают черновики).
     var onOpen: (() -> Void)?
+    /// Ключ профиля для NIP-42 (AUTH, kind 22242): часть релеев (relay.damus.io) отвечает `CLOSED … auth-required`.
+    var authKey: (() -> [UInt8]?)?
 
     private init() {
         for url in Self.relays { pool[url] = Relay(url: url) }
@@ -162,6 +168,10 @@ final class RelayPool {
         let task = session.webSocketTask(with: url)
         relay.task = task
         relay.open = false
+        // При переподключении вызов прежний недействителен.
+        relay.challenge = nil
+        relay.authEventId = nil
+        relay.authClosed = []
         task.resume()
         // Открытие сокета узнаём по первому успешному ping.
         task.sendPing { [weak self] error in
@@ -266,10 +276,30 @@ final class RelayPool {
     private func handle(_ relay: Relay, _ text: String) {
         guard let message = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [Any], let type = message.first as? String else { return }
         switch type {
+        case "AUTH":
+            guard message.count >= 2, let c = message[1] as? String else { return }
+            relay.challenge = c
+            if !relay.authClosed.isEmpty { authenticate(relay) }
+        case "CLOSED":
+            guard message.count >= 2, let id = message[1] as? String else { return }
+            let reason = message.count > 2 ? (message[2] as? String ?? "") : ""
+            guard reason.hasPrefix("auth-required"), subscriptions[id] != nil else { return }
+            relay.authClosed.insert(id)
+            authenticate(relay)
         case "OK":
             guard message.count >= 3, let id = message[1] as? String else { return }
             let ok = (message[2] as? Bool) ?? false
             let reason = message.count > 3 ? (message[3] as? String ?? "") : ""
+            // Релей принял наш AUTH: закрытые подписки повторяются.
+            if id == relay.authEventId {
+                if ok {
+                    let again = relay.authClosed
+                    relay.authClosed = []
+                    for sid in again { if let sub = subscriptions[sid] { relay.outbox.append(Self.reqMessage(sid, sub.filters)) } }
+                    drain(relay)
+                }
+                return
+            }
             if let ack = acks[id] { DispatchQueue.main.async { ack(relay.url, ok, reason) } }
         case "EOSE":
             guard message.count >= 2, let id = message[1] as? String, let cb = subscriptions[id]?.onEose else { return }
@@ -290,6 +320,15 @@ final class RelayPool {
         default:
             break
         }
+    }
+
+    /// NIP-42: подписанное ключом профиля событие kind 22242 с адресом релея и его вызовом.
+    private func authenticate(_ relay: Relay) {
+        guard relay.authEventId == nil, let c = relay.challenge, let key = authKey?(), key.count == 32 else { return }
+        let event = Nostr.sign(privateKey: key, kind: 22242, tags: [["relay", relay.url], ["challenge", c]], content: "")
+        relay.authEventId = event.id
+        relay.outbox.insert(JSON.string(["AUTH", event.json] as [Any]), at: 0)
+        drain(relay)
     }
 
     private func scheduleIdleClose() {

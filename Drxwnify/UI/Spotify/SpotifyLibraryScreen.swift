@@ -16,7 +16,7 @@ private struct SpotifyLibraryContent: View {
     @ObservedObject var session: SpotifyTokenManager.State
 
     private enum Filter: String, CaseIterable, Identifiable {
-        case all, songs, playlists, albums, artists, reviews, vk, concerts
+        case all, songs, playlists, albums, artists, reviews, vk, concerts, spotifyTab, yandexTab
         var id: String { rawValue }
 
         var title: String {
@@ -29,6 +29,8 @@ private struct SpotifyLibraryContent: View {
             case .reviews: return "drxwnslvt's"
             case .vk: return "VK"
             case .concerts: return L("concerts_chip")
+            case .spotifyTab: return "Spotify"
+            case .yandexTab: return L("yandex_tab_short")
             }
         }
     }
@@ -75,10 +77,11 @@ private struct SpotifyLibraryContent: View {
 
     /// Чья медиатека на экране: аккаунт Spotify или Яндекса (основной источник, как `Catalog.source`).
     private var userId: String {
+        if env.spotify.vkIsSource { return "vk:" + (settings.get(PK.vkUserId) ?? "linked") }
         if env.spotify.yandexIsSource { return "ym:" + (settings.get(PK.yandexUid) ?? "linked") }
         return settings.get(PK.spotifySpDc).map { _ in settings.get(PK.spotifyUserId) ?? "linked" } ?? ""
     }
-    private var isLinked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty || env.spotify.yandexIsSource }
+    private var isLinked: Bool { MainAccount.shared.main != nil }
 
     var body: some View {
         list
@@ -255,7 +258,7 @@ private struct SpotifyLibraryContent: View {
         let filtered: [SpotifyLibraryEntry]
         switch filter {
         case .all: filtered = all
-        case .songs, .reviews, .vk, .concerts: filtered = []
+        case .songs, .reviews, .vk, .concerts, .spotifyTab, .yandexTab: filtered = []
         case .playlists: filtered = all.filter { $0.kind == .playlist || $0.kind == .folder || $0.kind == .likedSongs }
         case .albums: filtered = all.filter { $0.kind == .album }
         case .artists: filtered = all.filter { $0.kind == .artist }
@@ -304,7 +307,7 @@ private struct SpotifyLibraryContent: View {
                 .background(NavigationLink(destination: ImportPlaylistScreen(), isActive: $importing) { EmptyView() }.opacity(0))
                 .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 2, trailing: 0))
                 .listRowBackground(Color.clear)
-            if filter != .reviews && filter != .vk && filter != .concerts {
+            if filter != .reviews && filter != .vk && filter != .concerts && filter != .spotifyTab && filter != .yandexTab {
                 toolsRow
                     .listRowBackground(Color.clear)
             }
@@ -323,6 +326,10 @@ private struct SpotifyLibraryContent: View {
                 ReviewsSection()
             } else if filter == .vk {
                 VkLibrarySection(vk: env.vk)
+            } else if filter == .spotifyTab {
+                AccountTabSection(source: .SPOTIFY)
+            } else if filter == .yandexTab {
+                AccountTabSection(source: .YANDEX)
             } else if filter == .concerts {
                 ConcertsSection()
             } else {
@@ -410,7 +417,11 @@ private struct SpotifyLibraryContent: View {
     private var chipList: [Filter] {
         var list: [Filter] = [.albums, .artists, .songs, .playlists]
         if env.friends.selfVerified { list.append(.reviews) }
-        if env.vk.hasOwnAccount { list.append(.vk) }
+        // Другие привязанные аккаунты — вкладками, если включены на странице аккаунта (Android 2.3.0).
+        let tabs = MainAccount.shared.tabs
+        if tabs.contains(.SPOTIFY) { list.append(.spotifyTab) }
+        if tabs.contains(.YANDEX) { list.append(.yandexTab) }
+        if tabs.contains(.VK) { list.append(.vk) }
         if Concerts.isEnabled { list.append(.concerts) }
         return list
     }
@@ -674,9 +685,13 @@ struct SpotifyLibraryEntryCell: View {
 
 struct SpotifyLibraryEntryDestination: View {
     let entry: SpotifyLibraryEntry
+    /// Чья медиатека: у вкладки другого аккаунта «Любимые» открываются его плейлистом (`ym_liked`, `vk_liked`).
+    var source: CatalogSource? = nil
 
     var body: some View {
         switch entry.kind {
+        case .likedSongs where source != nil && source != MainAccount.shared.main:
+            SpotifyPlaylistScreen(playlistId: entry.id, name: entry.name, imageUrl: entry.imageUrl)
         case .likedSongs: SpotifyLikedSongsScreen()
         case .playlist: SpotifyPlaylistScreen(playlistId: entry.id, name: entry.name, imageUrl: entry.imageUrl)
         case .album: SpotifyAlbumScreen(albumId: entry.id, name: entry.name)

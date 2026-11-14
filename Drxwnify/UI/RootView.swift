@@ -19,6 +19,23 @@ struct RootView: View {
     @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var player: PlayerController
     @ObservedObject private var suggestions = Suggestions.shared
+    @State private var monthStory: Story?
+
+    /// Итоги прошлого месяца — один раз, при первом открытии в новом месяце (через 4 с), если в нём были прослушивания.
+    private func offerMonthReview() {
+        let cal = Calendar.current
+        let c = cal.dateComponents([.year, .month], from: Date())
+        let key = "month_review_offered_\(c.year ?? 0)_\(c.month ?? 0)"
+        guard !UserDefaults.standard.bool(forKey: key), let last = cal.date(byAdding: .month, value: -1, to: Date()) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let lib = env.library
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+            Task {
+                let s = await StoryBuilder.month(last, library: lib)
+                await MainActor.run { monthStory = s }
+            }
+        }
+    }
 
     /// Высота стандартной панели вкладок над безопасной зоной (iOS 14–25).
     static let classicTabBarHeight: CGFloat = 49
@@ -28,7 +45,9 @@ struct RootView: View {
             .onAppear {
                 env.currentTab = Self.name(tab)
                 runDebugScreen()
+                offerMonthReview()
             }
+            .storyCover($monthStory)
             .background(EmptyView().sheet(isPresented: Binding(get: { env.debugSheet != nil }, set: { if !$0 { env.debugSheet = nil } })) {
                 NavigationView { debugSheetContent }
                     .navigationViewStyle(StackNavigationViewStyle())

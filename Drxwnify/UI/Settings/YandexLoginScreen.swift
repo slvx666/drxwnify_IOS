@@ -60,6 +60,8 @@ struct YandexLoginScreen: View {
         let settings = env.prefs.settings
         let api = env.spotify
         let previous = settings.get(PK.yandexAccessToken)
+        let wasLinked = MainAccount.shared.isLinked(.YANDEX)
+        let mainBefore = MainAccount.shared.main
         settings.set(PK.yandexAccessToken, token)
         Task {
             do {
@@ -68,8 +70,8 @@ struct YandexLoginScreen: View {
                 await MainActor.run {
                     settings.set(PK.yandexUid, account.uid)
                     settings.set(PK.yandexUsername, account.displayName ?? account.login ?? account.uid)
-                    // Как на Android: после входа Яндекс — основной источник медиатеки и поиска.
-                    settings.set(PK.primaryMetadataSource, "YANDEX")
+                    // Основным становится, только если основного ещё не было (Android 2.3.0 `defaultMakeMain`).
+                    MainAccount.shared.didLink(.YANDEX, wasLinked: wasLinked, mainBefore: mainBefore)
                     presentationMode.wrappedValue.dismiss()
                 }
             } catch {

@@ -179,6 +179,46 @@ final class FriendsHub: ObservableObject {
         store = prefs.shared("friends")
         self.database = database
         load()
+        // NIP-42: релеи, требующие входа, получают подпись ключом профиля.
+        RelayPool.shared.authKey = { [weak self] in self?.secretKey }
+    }
+
+    // MARK: - Аватарки друзей на телефоне (Android 2.3.0)
+
+    /// Релеи со временем выкидывают старые события профиля — имя и картинка друга хранятся на телефоне.
+    private static let savedProfilesKey = "drx_friend_profiles"
+
+    private func savedProfiles() -> [String: [String: String]] {
+        (UserDefaults.standard.dictionary(forKey: Self.savedProfilesKey) as? [String: [String: String]]) ?? [:]
+    }
+
+    private func saveProfile(_ pubkey: String, name: String?, avatar: String?) {
+        var all = savedProfiles()
+        var p = all[pubkey] ?? [:]
+        if let n = name { p["n"] = n }
+        if let a = avatar { p["p"] = a }
+        all[pubkey] = p
+        UserDefaults.standard.set(all, forKey: Self.savedProfilesKey)
+    }
+
+    private func seedSavedProfiles() {
+        for (pk, p) in savedProfiles() where friends.contains(where: { $0.pubkey == pk }) {
+            var d = data[pk] ?? FriendData()
+            if d.name == nil { d.name = p["n"] }
+            if d.avatar == nil { d.avatar = p["p"] }
+            data[pk] = d
+        }
+    }
+
+    /// Свой профиль публикуется заново раз в 3 дня, чтобы релеи его не потеряли.
+    private func republishProfileIfStale() {
+        guard secretKey != nil else { return }
+        let key = "drx_profile_published_at"
+        let last = UserDefaults.standard.double(forKey: key)
+        let now = Date().timeIntervalSince1970
+        guard now - last > 3 * 24 * 3600 else { return }
+        UserDefaults.standard.set(now, forKey: key)
+        publishProfile()
     }
 
     /// Состояние из настроек (после запуска и после восстановления резервной копии).
@@ -199,6 +239,7 @@ final class FriendsHub: ObservableObject {
         pinned = (JSON.array(Data((store.string("pinned") ?? "[]").utf8)) as? [String]) ?? []
         dropSelfFromFriends()
         ensureDeveloperFriend()
+        seedSavedProfiles()
         if secretKey != nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.publishLibraryIfStale(Self.libraryRefreshMs) }
         }
@@ -413,6 +454,7 @@ final class FriendsHub: ObservableObject {
         liveUsers += 1
         if liveUsers == 1 { openLive() }
         publishLibraryIfStale(10 * 60 * 1000)
+        republishProfileIfStale()
     }
 
     func stopLive() {
@@ -491,6 +533,7 @@ final class FriendsHub: ObservableObject {
         case Self.fProfile:
             if let n = json?.str("name"), !n.trimmingCharacters(in: .whitespaces).isEmpty { current.name = n }
             if let pic = json?.str("pic"), !pic.isEmpty, pic.count <= Self.maxAvatarChars { current.avatar = pic }
+            saveProfile(author, name: current.name, avatar: current.avatar)
         case Self.fNow: current.now = json.flatMap(Self.now(from:))
         case Self.fHistory: current.history = (json?.arr("tracks") as? [JSONObject]).map { $0.map(Self.ref(from:)) }
         case Self.fPlaylists: current.playlists = (json?.arr("playlists") as? [JSONObject]).map(Self.playlists(from:))

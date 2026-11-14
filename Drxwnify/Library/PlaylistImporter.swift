@@ -78,6 +78,8 @@ final class PlaylistImporter: ObservableObject {
                     self.found += job.ready.count
                     guard !list.isEmpty else { return }
                     let id = job.existing ?? library.createPlaylist(name: job.name)
+                    // Импортированный плейлист предлагается создать и в основном аккаунте (Android 2.3.0).
+                    if job.existing == nil { RemotePlaylists.shared.markImported(id) }
                     // Дополняем: то, что уже есть в плейлисте, второй раз не кладём.
                     let have = library.contained(in: id, list.map { $0.id })
                     library.add(list.filter { !have.contains($0.id) }, to: id)

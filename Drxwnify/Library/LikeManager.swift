@@ -29,6 +29,7 @@ final class LikeManager: ObservableObject {
     /// Лайк трека каталога уходит в его аккаунт: `ym_` — в Яндекс Музыку, остальное — в Spotify (при `spotifySyncLikes`).
     private func syncs(_ catalogId: String) -> Bool {
         if YandexIds.isYandex(catalogId) { return !(settings.get(PK.yandexAccessToken) ?? "").isEmpty }
+        if VkIds.isVk(catalogId) { return !(settings.get(PK.vkAccessToken) ?? "").isEmpty }
         return !(settings.get(PK.spotifySpDc) ?? "").isEmpty && (settings.get(PK.spotifySyncLikes) ?? true)
     }
 
@@ -55,13 +56,21 @@ final class LikeManager: ObservableObject {
                               arguments: [value ? 1 : 0, value ? SongStore.nowMs() : nil, track.id])
             }
         }
-        guard let id = track.catalogId, syncs(id) else { return }
+        guard let id = track.catalogId, !id.isEmpty else { return }
+        // Куда уходит лайк (Android 2.3.0): только в основной, в основной и откуда трек (по умолчанию) или во все.
+        // Трек другого каталога лайкается тем же треком в каталоге аккаунта; чего там нет — пропускается.
         let api = spotify
+        let targets = CrossCatalog.targets(for: id).filter { t in
+            t != .SPOTIFY || (settings.get(PK.spotifySyncLikes) ?? true)
+        }
         Task {
-            do {
-                if value { try await api.saveTrack(id) } else { try await api.removeTrack(id) }
-            } catch {
-                // Spotify не принял — локальный лайк остаётся; следующая сверка покажет расхождение.
+            for t in targets {
+                guard let target = await CrossCatalog.trackFor(t, track: track, api: api) else { continue }
+                do {
+                    if value { try await api.saveTrack(target) } else { try await api.removeTrack(target) }
+                } catch {
+                    // Аккаунт не принял — локальный лайк остаётся; следующая сверка покажет расхождение.
+                }
             }
         }
     }

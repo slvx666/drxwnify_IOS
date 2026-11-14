@@ -130,7 +130,7 @@ enum ForYouRecommender {
                 let more: [SpotifyTrack]
                 if !mixesTried {
                     mixesTried = true
-                    more = api.yandexIsSource ? [] : await ForYouRecommender.madeForYou(api)
+                    more = MainAccount.shared.main != .SPOTIFY ? [] : await ForYouRecommender.madeForYou(api)
                 } else {
                     if seeds == nil { seeds = await ForYouRecommender.resolveSeeds(t, api: api) }
                     more = await ForYouRecommender.fromTaste(seeds ?? [], api: api)

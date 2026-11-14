@@ -127,7 +127,7 @@ final class HomeModel: ObservableObject {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await self.loadForYou(data, api: api, hideExplicit: hideExplicit) }
                 group.addTask { await HomeFeed.shared.refresh(data, api: api, hideExplicit: hideExplicit, force: force) }
-                if spotifyLinked && !api.yandexIsSource {
+                if spotifyLinked && MainAccount.shared.main == .SPOTIFY {
                     group.addTask { await self.loadSpotifyHome(api) }
                 }
             }
