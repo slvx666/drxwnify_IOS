@@ -64,6 +64,14 @@ final class FriendsHub: ObservableObject {
         var listenAlong: Bool
 
         func positionNow() -> Int64 { playing ? positionMs + max(0, FriendsHub.nowMs() - at) : positionMs }
+
+        /// Играет прямо сейчас (Android 2.3.0 `isLive`): последнее слово «играет» и трек ещё не должен был закончиться
+        /// (+3 мин на часы и сеть; без длины — 12 мин). Друг, у которого систему убила приложение, не висит «в эфире» часами.
+        func isLive(_ nowMs: Int64 = FriendsHub.nowMs()) -> Bool {
+            guard playing else { return false }
+            let left = track.durationMs > 0 ? max(0, track.durationMs - positionMs) : 12 * 60_000
+            return nowMs <= at + left + 3 * 60_000
+        }
     }
 
     struct SharedPlaylist: Hashable {

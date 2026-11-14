@@ -18,6 +18,38 @@ enum YandexIds {
         guard let sep = r.lastIndex(of: "_"), sep != r.startIndex, r.index(after: sep) != r.endIndex else { return nil }
         return (String(r[..<sep]), String(r[r.index(after: sep)...]))
     }
+
+    /// На что указывает ссылка music.yandex.* (Android 2.3.0 `YandexIds.Link`).
+    enum Link: Equatable {
+        case album(String)
+        /// `/users/<логин или uid>/playlists/<kind>`.
+        case playlist(owner: String, kind: String)
+        /// Новая ссылка «Поделиться» `/playlists/<uuid>` (например `lk.1a2b…`).
+        case playlistUuid(String)
+    }
+
+    private static let host = try! NSRegularExpression(pattern: #"https?://(?:www\.)?music\.yandex\.(?:ru|com|by|kz|uz)/"#, options: .caseInsensitive)
+
+    static func isLink(_ url: String) -> Bool {
+        host.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil
+    }
+
+    /// Ссылка на альбом или плейлист; nil для трека, артиста и чужих сайтов.
+    static func parseLink(_ url: String) -> Link? {
+        guard let m = host.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)), let r = Range(m.range, in: url) else { return nil }
+        let path = String(url[r.upperBound...])
+        func groups(_ pattern: String) -> [String]? {
+            guard let re = try? NSRegularExpression(pattern: pattern),
+                  let g = re.firstMatch(in: path, range: NSRange(path.startIndex..., in: path)) else { return nil }
+            return (1..<g.numberOfRanges).compactMap { Range(g.range(at: $0), in: path).map { String(path[$0]) } }
+        }
+        if let g = groups(#"^album/(\d+)"#), let id = g.first { return .album(id) }
+        if let g = groups(#"^users/([^/?#]+)/playlists/(\d+)"#), g.count == 2 {
+            return .playlist(owner: g[0].removingPercentEncoding ?? g[0], kind: g[1])
+        }
+        if let g = groups(#"^playlists/([A-Za-z0-9.\-]+)"#), let id = g.first { return .playlistUuid(id) }
+        return nil
+    }
 }
 
 struct YandexError: Error, LocalizedError {
@@ -221,6 +253,25 @@ final class YandexAPI {
         return try await array("users/\(u)/playlists/list").compactMap(Self.playlist)
     }
 
+    /// Id каталога (`ym_…`) по ссылке на альбом или плейлист (Android 2.3.0 `idOfLink`); nil — ссылка не на них.
+    /// Логин в ссылке меняется на uid из ответа; ссылка `/playlists/<uuid>` один раз запрашивается, чтобы узнать владельца.
+    func idOfLink(_ url: String) async throws -> String? {
+        switch YandexIds.parseLink(url) {
+        case .album(let raw)?:
+            return YandexIds.make(raw)
+        case let .playlist(owner, kind)?:
+            if owner.allSatisfy(\.isNumber) { return YandexIds.playlist(owner: owner, kind: kind) }
+            let o = try? await object("users/\(owner)/playlists/\(kind)", anonymous: true)
+            return o.flatMap(Self.playlist)?.id ?? YandexIds.playlist(owner: owner, kind: kind)
+        case .playlistUuid(let uuid)?:
+            let o = try await object("playlist/\(uuid)", anonymous: true)
+            guard let p = Self.playlist(o.obj("playlist") ?? o) else { throw YandexError(status: 500, message: "Invalid playlist payload") }
+            return p.id
+        case nil:
+            return nil
+        }
+    }
+
     func playlist(_ id: String) async throws -> SpotifyPlaylist {
         guard let (owner, kind) = YandexIds.parsePlaylist(id) else { throw YandexError(status: 400, message: "Bad playlist id") }
         guard let p = Self.playlist(try await object("users/\(owner)/playlists/\(kind)", anonymous: true)) else {
@@ -289,7 +340,8 @@ final class YandexAPI {
             out.append(SpotifyLibraryEntry(kind: .album, id: a.id, uri: a.uri ?? a.id, name: a.name,
                                            creator: a.artists.map { $0.name }.joined(separator: ", "),
                                            imageUrl: a.images.dropFirst().first?.url ?? a.images.first?.url,
-                                           albumType: a.albumType, addedAt: o.str("timestamp"), totalCount: ao.int("trackCount") ?? 0))
+                                           albumType: a.albumType, addedAt: o.str("timestamp"), totalCount: ao.int("trackCount") ?? 0,
+                                           year: a.releaseDate.flatMap { Int($0.prefix(4)) }))
         }
         for o in (await artists ?? []) {
             guard let a = Self.fullArtist(o.obj("artist") ?? o) else { continue }

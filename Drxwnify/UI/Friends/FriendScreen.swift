@@ -31,7 +31,7 @@ struct FriendScreen: View {
             .listRowBackground(Color.clear)
 
             if let now = data?.now {
-                Section(header: Text(L(now.playing ? "ios_friend_now" : "ios_friend_paused"))) {
+                Section(header: Text(L(now.isLive() ? "ios_friend_now" : "ios_friend_paused"))) {
                     refRow(now.track, context: [now.track])
                     if now.listenAlong {
                         if friends.listeningTo == pubkey {

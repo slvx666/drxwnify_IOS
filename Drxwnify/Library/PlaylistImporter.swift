@@ -116,33 +116,99 @@ final class PlaylistImporter: ObservableObject {
         }
     }
 
-    /// Разбор вставленного текста: строки треков и ссылки. Ссылки на плейлисты становятся своими задачами.
+    /// Разбор вставленного текста: строки треков и ссылки (Spotify, Яндекс Музыка, SoundCloud).
+    /// Без названия плейлист называется как источник по первой ссылке (Android 2.3.0), иначе «Импорт <дата>»;
+    /// несколько ссылок без строк и без названия — по плейлисту на ссылку, каждый со своим названием.
     static func parse(_ text: String, name: String, existing: String?, env: AppEnvironment) async -> [Job] {
-        var main = Job(name: name, existing: existing)
+        var lines: [String] = []
+        var links: [String] = []
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.isEmpty { continue }
-            if line.contains("://") || line.hasPrefix("open.spotify") || line.hasPrefix("soundcloud.com") {
+            if line.contains("://") || line.hasPrefix("open.spotify") || line.hasPrefix("soundcloud.com") || line.hasPrefix("music.yandex") {
                 let link = line.hasPrefix("http") ? line : "https://" + line
-                if link.contains("soundcloud.com"), let sc = env.player.audioEngine.soundCloud {
-                    main.items += await sc.importLink(link)
-                } else if let url = URL(string: link), let t = AppLinks.parse(url) {
-                    switch t.kind {
-                    case .playlist:
-                        main.ready += await spotifyPlaylist(t.id, api: env.spotify)
-                    case .album:
-                        if let a = try? await env.spotify.album(t.id) { main.ready += a.tracks.map { Track($0, album: a.simple) } }
-                    case .track:
-                        if let s = try? await env.spotify.track(t.id) { main.ready.append(Track(s)) }
-                    case .artist:
-                        break
-                    }
-                }
-                continue
+                if !links.contains(link) { links.append(link) }
+            } else {
+                lines.append(line)
             }
-            main.items.append(item(line))
+        }
+        let blank = name.trimmingCharacters(in: .whitespaces).isEmpty && existing == nil
+        if blank && links.count > 1 && lines.isEmpty {
+            var jobs: [Job] = []
+            for link in links {
+                var job = Job(name: "", existing: nil)
+                await read(link, into: &job, env: env)
+                job.name = await linkTitle(link, env: env) ?? defaultName()
+                jobs.append(job)
+            }
+            return jobs
+        }
+        var main = Job(name: name, existing: existing)
+        for link in links { await read(link, into: &main, env: env) }
+        main.items += lines.map(item)
+        if blank {
+            var title: String?
+            for link in links where title == nil { title = await linkTitle(link, env: env) }
+            main.name = title ?? defaultName()
         }
         return [main]
+    }
+
+    static func defaultName() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: Locale.preferredLanguages.first ?? "ru")
+        f.setLocalizedDateFormatFromTemplate("d MMM")
+        return L("import_default_name", f.string(from: Date()))
+    }
+
+    /// Треки по одной ссылке.
+    private static func read(_ link: String, into job: inout Job, env: AppEnvironment) async {
+        if link.contains("soundcloud.com"), let sc = env.player.audioEngine.soundCloud {
+            job.items += await sc.importLink(link)
+            return
+        }
+        if YandexIds.isLink(link) {
+            guard let y = env.spotify.yandex, let id = try? await y.idOfLink(link) else { return }
+            if case .album? = YandexIds.parseLink(link) {
+                if let a = try? await env.spotify.album(id) { job.ready += a.tracks.map { Track($0, album: a.simple) } }
+            } else {
+                job.ready += await spotifyPlaylist(id, api: env.spotify)
+            }
+            return
+        }
+        guard let url = URL(string: link), let t = AppLinks.parse(url) else { return }
+        switch t.kind {
+        case .playlist:
+            job.ready += await spotifyPlaylist(t.id, api: env.spotify)
+        case .album:
+            if let a = try? await env.spotify.album(t.id) { job.ready += a.tracks.map { Track($0, album: a.simple) } }
+        case .track:
+            if let s = try? await env.spotify.track(t.id) { job.ready.append(Track(s)) }
+        case .artist:
+            break
+        }
+    }
+
+    /// Название плейлиста или альбома по ссылке, как его называет сам сервис; nil — неизвестно.
+    static func linkTitle(_ link: String, env: AppEnvironment) async -> String? {
+        if YandexIds.isLink(link) {
+            guard let y = env.spotify.yandex, let id = try? await y.idOfLink(link) else { return nil }
+            if case .album? = YandexIds.parseLink(link) { return try? await env.spotify.album(id).name }
+            return try? await env.spotify.playlist(id).name
+        }
+        guard let url = URL(string: link), let t = AppLinks.parse(url) else { return nil }
+        switch t.kind {
+        case .playlist: return try? await env.spotify.playlist(t.id).name
+        case .album: return try? await env.spotify.album(t.id).name
+        default: return nil
+        }
+    }
+
+    /// Можно ли прочитать ссылку (для подсказки «название возьмём по ссылке»).
+    static func isPlaylistLink(_ line: String) -> Bool {
+        let l = line.lowercased()
+        return (l.contains("open.spotify.com/") && (l.contains("/playlist/") || l.contains("/album/")))
+            || l.contains("soundcloud.com/") || YandexIds.parseLink(line.hasPrefix("http") ? line : "https://" + line) != nil
     }
 
     /// «Исполнитель - Название» (а также «—», «–»); без тире — только название. Нумерация «1.» отбрасывается.

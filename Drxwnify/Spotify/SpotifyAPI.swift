@@ -344,7 +344,8 @@ final class SpotifyAPI {
                                        creator: creator,
                                        imageUrl: parseImages(data.obj("coverArt")?.arr("sources")).first?.url,
                                        albumType: data.str("type")?.lowercased(),
-                                       pinned: pinned, addedAt: addedAt)
+                                       pinned: pinned, addedAt: addedAt,
+                                       year: data.obj("date")?.int("year") ?? data.obj("date")?.str("isoString").flatMap { Int($0.prefix(4)) })
         }
         if has("Artist") {
             guard let data = data, let name = data.obj("profile")?.str("name") ?? data.str("name") else { return nil }

@@ -134,6 +134,8 @@ struct SpotifyLibraryEntry: Codable, Hashable, Identifiable {
     var pinned: Bool = false
     var addedAt: String?
     var totalCount: Int = 0
+    /// Год выпуска альбома (сортировка и фильтр по году, Android 2.3.0); nil — неизвестен, дочитывается по альбому.
+    var year: Int? = nil
 }
 
 struct SpotifyUser: Codable, Hashable {

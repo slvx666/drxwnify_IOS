@@ -117,7 +117,7 @@ private struct ListenTogetherTab: View {
     private var live: [FriendsHub.Friend] {
         friends.friends.filter { f in
             guard let n = friends.data[f.pubkey]?.now else { return false }
-            return n.playing && n.listenAlong
+            return n.isLive() && n.listenAlong
         }
     }
 
@@ -211,13 +211,18 @@ private struct FriendsListView: View {
     @EnvironmentObject private var nav: TogetherNav
     @State private var showAdd = false
     @State private var shareItems: [Any]?
+    /// Время раз в полминуты: «слушает сейчас» гаснет само, когда устарело.
+    @State private var clock = FriendsHub.nowMs()
 
     private var sortedFriends: [FriendsHub.Friend] {
         friends.friends.sorted { a, b in
             let pa = friends.pinned.contains(a.pubkey), pb = friends.pinned.contains(b.pubkey)
             if pa != pb { return pa }
-            let na = friends.data[a.pubkey]?.now?.playing == true, nb = friends.data[b.pubkey]?.now?.playing == true
+            // Остальные по активности (Android 2.3.0): слушает сейчас → по последнему слову (свежее выше) → молчащие.
+            let na = friends.data[a.pubkey]?.now?.isLive(clock) == true, nb = friends.data[b.pubkey]?.now?.isLive(clock) == true
             if na != nb { return na }
+            let ta = friends.data[a.pubkey]?.now?.at ?? 0, tb = friends.data[b.pubkey]?.now?.at ?? 0
+            if ta != tb { return ta > tb }
             return a.name.lowercased() < b.name.lowercased()
         }
     }
@@ -300,6 +305,7 @@ private struct FriendsListView: View {
         }
         .listStyle(InsetGroupedListStyle())
         .sheet(isPresented: $showAdd) { AddFriendSheet().environmentObject(friends) }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in clock = FriendsHub.nowMs() }
         .sheet(isPresented: Binding(get: { shareItems != nil }, set: { if !$0 { shareItems = nil } })) { ShareSheet(items: shareItems ?? []) }
     }
 }
@@ -312,7 +318,7 @@ private struct FriendRow: View {
         let d = friends.data[friend.pubkey]
         HStack(spacing: 12) {
             FriendAvatar(name: d?.name ?? friend.name, avatar: d?.avatar)
-                .overlay(d?.now?.playing == true
+                .overlay(d?.now?.isLive() == true
                          ? Circle().fill(Color.green).frame(width: 12, height: 12)
                             .overlay(Circle().stroke(Color(.systemBackground), lineWidth: 2))
                          : nil,
@@ -327,8 +333,8 @@ private struct FriendRow: View {
                 }
                 if let now = d?.now {
                     HStack(spacing: 4) {
-                        Image(systemName: now.playing ? "waveform" : "pause.fill").font(.caption2)
-                            .foregroundColor(now.playing ? .green : .secondary)
+                        Image(systemName: now.isLive() ? "waveform" : "pause.fill").font(.caption2)
+                            .foregroundColor(now.isLive() ? .green : .secondary)
                         Text("\(now.track.artist) — \(now.track.title)").font(.caption).foregroundColor(.secondary).lineLimit(1)
                     }
                 }

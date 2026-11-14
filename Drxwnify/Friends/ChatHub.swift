@@ -308,6 +308,72 @@ final class ChatHub: ObservableObject {
         liveKeys = keys
         liveSub = relays.subscribe([inboxFilter(me, since: since())]) { [weak self] in self?.onEvent($0) }
         retryOutbox()
+        syncHistoryOnce()
+    }
+
+    // MARK: - История с релеев (после восстановления копии)
+
+    /// Переписка живёт в базе телефона, в резервную копию она не входит, а курсор `cursor_<ключ>` из копии Android свежий —
+    /// поэтому на новом телефоне с тем же ключом прошлые сообщения не приходили, а свои отправленные — никогда
+    /// (подписка просит только адресованные мне). Один раз на этом телефоне для этого ключа: входящие от друзей и свои
+    /// исходящие к ним за год, сколько релеи ещё хранят. Свои расшифровываются тем же общим секретом (ECDH симметричен).
+    private static let historyS: Int64 = 365 * 24 * 3600
+
+    private func syncHistoryOnce() {
+        guard let me = me else { return }
+        let flag = "chat_history_synced_" + me
+        if UserDefaults.standard.bool(forKey: flag) { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        let since = Int64(Date().timeIntervalSince1970) - Self.historyS
+        var incoming: JSONObject = ["kinds": [Self.kindDM], "#p": [me], "since": since]
+        if let s = senders() { incoming["authors"] = Array(s) }
+        var outgoing: JSONObject = ["kinds": [Self.kindDM], "authors": [me], "since": since]
+        if let s = senders() { outgoing["#p"] = Array(s) }
+        var subId = ""
+        var ends = 0
+        subId = relays.subscribe([incoming, outgoing], onEose: { [weak self] in
+            ends += 1
+            if ends >= 3 { self?.relays.close(subId) }
+        }) { [weak self] e in
+            guard let self = self else { return }
+            if e.pubkey == me { self.onOwnEvent(e) } else { self.onEvent(e, history: true) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.relays.close(subId) }
+    }
+
+    /// Своё сообщение, отправленное с другого телефона (Android) тем же ключом.
+    private func onOwnEvent(_ event: NostrEvent) {
+        guard let me = me, let sk = friends.secretKey, event.pubkey == me, let peer = event.tag("p"), peer != me,
+              let plain = Nostr.decrypt(privateKey: sk, from: peer, payload: event.content),
+              let o = JSON.object(plain), o.str("t") == Self.type,
+              let id = o.str("id"), !id.isEmpty, id.count <= 64 else { return }
+        let ts: Int64 = {
+            if let v = o.int("ts"), v > 0 { return min(Int64(v), event.createdAt * 1000 + 60_000) }
+            return event.createdAt * 1000
+        }()
+        let text = String((o.str("text") ?? "").prefix(Self.maxText))
+        switch o.str("k") {
+        case Self.kMsg:
+            let music = o.obj("m").flatMap(ChatMusic.init(object:)).map { JSON.string($0.json) }
+            _ = insert(ChatMessage(owner: me, peer: peer, id: id, mine: true, ts: ts, text: text, music: music,
+                                   replyTo: o.str("re").flatMap { $0.isEmpty ? nil : $0 }, state: ChatMessage.stateSent, read: true))
+        case Self.kEdit:
+            if var old = get(me, peer, id), old.mine, !old.deleted {
+                old.text = text
+                old.edited = true
+                update(old)
+            }
+        case Self.kDel:
+            if var old = get(me, peer, id), old.mine {
+                old.text = ""
+                old.music = nil
+                old.deleted = true
+                update(old)
+            }
+        default:
+            return
+        }
+        changed()
     }
 
     private func closeLive() {
@@ -343,7 +409,8 @@ final class ChatHub: ObservableObject {
 
     // MARK: - Приём
 
-    private func onEvent(_ event: NostrEvent) {
+    /// `history`: старое сообщение из разовой подгрузки — без уведомления, уже прочитано (его читали на другом телефоне).
+    private func onEvent(_ event: NostrEvent, history: Bool = false) {
         guard let me = me, let sk = friends.secretKey else { return }
         let author = event.pubkey
         guard author != me, event.tag("p") == me,
@@ -361,8 +428,8 @@ final class ChatHub: ObservableObject {
             if o.str("k") == Self.kTyping { typing[author] = Date().addingTimeInterval(Self.typingShown) }
             return
         }
-        apply(me: me, author: author, event: event, o: o)
-        advanceCursor(event.createdAt)
+        apply(me: me, author: author, event: event, o: o, history: history)
+        if !history { advanceCursor(event.createdAt) }
     }
 
     private func insert(_ m: ChatMessage) -> Bool {
@@ -397,7 +464,7 @@ final class ChatHub: ObservableObject {
         changed()
     }
 
-    private func apply(me: String, author: String, event: NostrEvent, o: JSONObject) {
+    private func apply(me: String, author: String, event: NostrEvent, o: JSONObject, history: Bool = false) {
         guard let id = o.str("id"), !id.isEmpty, id.count <= 64 else { return }
         // Часы отправителя, но не позже минуты после получения релеем.
         let ts: Int64 = {
@@ -408,11 +475,12 @@ final class ChatHub: ObservableObject {
         switch o.str("k") {
         case Self.kMsg:
             typing[author] = nil
-            let reading = openPeer == author && UIApplication.shared.applicationState == .active
+            let reading = history || (openPeer == author && UIApplication.shared.applicationState == .active)
             let music = o.obj("m").flatMap(ChatMusic.init(object:)).map { JSON.string($0.json) }
             let m = ChatMessage(owner: me, peer: author, id: id, mine: false, ts: ts, text: text, music: music,
                                 replyTo: o.str("re").flatMap { $0.isEmpty ? nil : $0 }, state: ChatMessage.stateReceived, read: reading)
             guard insert(m) else { return }
+            if history { break }
             if reading { sendRead(author, upTo: ts) } else { ChatNotifier.notify(from: friends.friends.first { $0.pubkey == author }?.name ?? "", text: text.isEmpty ? (m.card?.label ?? "") : Stickers.plain(text)) }
         case Self.kEdit:
             if let old = get(me, author, id) {
@@ -444,7 +512,7 @@ final class ChatHub: ObservableObject {
         default:
             // Сообщение более новой версии: показывается, если в нём есть текст.
             if text.trimmingCharacters(in: .whitespaces).isEmpty { return }
-            if insert(ChatMessage(owner: me, peer: author, id: id, mine: false, ts: ts, text: text)) {
+            if insert(ChatMessage(owner: me, peer: author, id: id, mine: false, ts: ts, text: text, read: history)), !history {
                 ChatNotifier.notify(from: friends.friends.first { $0.pubkey == author }?.name ?? "", text: text)
             }
         }

@@ -53,10 +53,16 @@ private struct SpotifyLibraryContent: View {
     @AppStorage("library_sort_reversed") private var reversed = false
     @ObservedObject private var pins = LibraryPins.shared
 
+    /// Год выпуска (только на «Альбомах», Android 2.3.0): заголовки годов и фильтр по году.
+    @State private var yearFilter: Int?
+    @State private var fetchedYears: [String: Int] = AlbumYears.load()
+    private var yearSort: Bool { sort == .year && filter == .albums }
+
     private enum Sort: String, CaseIterable {
-        case recents = "RECENTS", dateAdded = "DATE_ADDED", name = "NAME", creator = "CREATOR"
+        case recents = "RECENTS", dateAdded = "DATE_ADDED", name = "NAME", creator = "CREATOR", year = "YEAR"
         var title: String {
             switch self {
+            case .year: return L("lib_sort_year")
             case .recents: return L("lib_sort_recents")
             case .dateAdded: return L("lib_sort_recently_added")
             case .name: return L("lib_sort_alphabetical")
@@ -84,6 +90,8 @@ private struct SpotifyLibraryContent: View {
             reloadLocal()
         }
         .onChange(of: userId) { _ in reloadIfNeeded() }
+        .onChange(of: yearSort) { _ in fillYears() }
+        .onChange(of: loader.value?.count ?? 0) { _ in fillYears() }
         .onChange(of: library.revision) { _ in reloadLocal() }
         .onReceive(env.$debugLibraryFilter.compactMap { $0 }) { f in
             if let v = Filter(rawValue: f) { filter = v }
@@ -226,8 +234,24 @@ private struct SpotifyLibraryContent: View {
         }
     }
 
+    /// Альбомы с годами, дочитанными позже.
+    private var allEntries: [SpotifyLibraryEntry] {
+        (loader.value ?? []).map { e in
+            guard e.kind == .album, e.year == nil, let y = fetchedYears[e.id] else { return e }
+            var c = e
+            c.year = y
+            return c
+        }
+    }
+
+    /// Годы, из которых альбомы медиатеки, новые сверху: варианты фильтра.
+    private var availableYears: [Int] {
+        guard yearSort else { return [] }
+        return Array(Set(allEntries.filter { $0.kind == .album }.compactMap { $0.year })).sorted(by: >)
+    }
+
     private var entries: [SpotifyLibraryEntry] {
-        let all = loader.value ?? []
+        let all = allEntries
         let filtered: [SpotifyLibraryEntry]
         switch filter {
         case .all: filtered = all
@@ -241,8 +265,15 @@ private struct SpotifyLibraryContent: View {
             $0.name.localizedCaseInsensitiveContains(q) || ($0.creator ?? "").localizedCaseInsensitiveContains(q)
         }
         let sorted: [SpotifyLibraryEntry]
-        switch sort {
+        // «Год» относится к альбомам; на других фишках — обычный порядок.
+        switch sort == .year && filter != .albums ? Sort.recents : sort {
         case .recents: sorted = matched
+        case .year:
+            let byYear = yearFilter.map { y in matched.filter { $0.year == y } } ?? matched
+            sorted = byYear.enumerated().sorted { a, b in
+                let x = a.element.year ?? Int.min, y = b.element.year ?? Int.min
+                return x != y ? x > y : a.offset < b.offset
+            }.map { $0.element }
         case .dateAdded:
             sorted = matched.enumerated().sorted { a, b in
                 let x = a.element.addedAt ?? "", y = b.element.addedAt ?? ""
@@ -335,12 +366,25 @@ private struct SpotifyLibraryContent: View {
                     }
                 }
                 .listRowBackground(Color.clear)
+            } else if yearSort && yearFilter == nil {
+                // Порядок «Год» списком: заголовок там, где начинается год (закреплённые сверху — без повторов).
+                ForEach(Array(yearRows.enumerated()), id: \.offset) { _, row in
+                    if let y = row.year {
+                        Text(String(y)).font(.headline).foregroundColor(.accentColor)
+                            .padding(.top, 8).listRowBackground(Color.clear)
+                    }
+                    NavigationLink(destination: SpotifyLibraryEntryDestination(entry: row.entry)) {
+                        SpotifyLibraryEntryRow(entry: row.entry, pinnedHere: pins.pinned.contains(LibraryPins.key(row.entry)), showYear: true)
+                    }
+                    .contextMenu { pinButton(row.entry) }
+                    .themedRow()
+                }
             } else {
                 ForEach(rows) { row in
                     switch row {
                     case .entry(let entry):
                         NavigationLink(destination: SpotifyLibraryEntryDestination(entry: entry)) {
-                            SpotifyLibraryEntryRow(entry: entry, pinnedHere: pins.pinned.contains(LibraryPins.key(entry)))
+                            SpotifyLibraryEntryRow(entry: entry, pinnedHere: pins.pinned.contains(LibraryPins.key(entry)), showYear: yearSort)
                         }
                         .contextMenu { pinButton(entry) }
                         .themedRow()
@@ -432,13 +476,32 @@ private struct SpotifyLibraryContent: View {
     private var toolsRow: some View {
         HStack(spacing: 18) {
             Menu {
-                ForEach(Sort.allCases, id: \.self) { s in
+                ForEach(Sort.allCases.filter { $0 != .year || filter == .albums }, id: \.self) { s in
                     Button(action: { sortRaw = s.rawValue }) {
                         if s == sort { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
                     }
                 }
             } label: {
-                Text(sort.title).font(.subheadline.weight(.medium))
+                Text((sort == .year && filter != .albums ? Sort.recents : sort).title).font(.subheadline.weight(.medium))
+            }
+            // Фильтр по году — при порядке «Год» на «Альбомах».
+            if !availableYears.isEmpty {
+                Menu {
+                    Button(action: { yearFilter = nil }) {
+                        if yearFilter == nil { Label(L("lib_year_all"), systemImage: "checkmark") } else { Text(L("lib_year_all")) }
+                    }
+                    ForEach(availableYears, id: \.self) { y in
+                        Button(action: { yearFilter = y }) {
+                            if y == yearFilter { Label(String(y), systemImage: "checkmark") } else { Text(String(y)) }
+                        }
+                    }
+                } label: {
+                    Label(yearFilter.map(String.init) ?? L("lib_year_filter"), systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 10).frame(height: 30)
+                        .foregroundColor(yearFilter != nil ? Color(.systemBackground) : .primary)
+                        .background(Capsule().fill(yearFilter != nil ? Color.accentColor : Color.secondary.opacity(0.22)))
+                }
             }
             // Стрелка — обратный порядок, как на Android.
             Button(action: { reversed.toggle() }) {
@@ -472,18 +535,73 @@ private struct SpotifyLibraryContent: View {
         let api = env.spotify
         loader.load(force: force) { try await api.myLibraryAll() }
     }
+
+    private struct YearRow {
+        var year: Int?
+        var entry: SpotifyLibraryEntry
+    }
+
+    private var yearRows: [YearRow] {
+        var headed = Set<Int>()
+        var out: [YearRow] = []
+        let list = entries
+        for (i, e) in list.enumerated() {
+            var heading: Int?
+            if let y = e.year, i == 0 || list[i - 1].year != y, headed.insert(y).inserted { heading = y }
+            out.append(YearRow(year: heading, entry: e))
+        }
+        return out
+    }
+
+    /// Годы, которых медиатека не дала, дочитываются по альбому, пока включён порядок «Год» (по 4 за раз).
+    private func fillYears() {
+        guard yearSort else { yearFilter = nil; return }
+        let missing = Array(Set(allEntries.filter { $0.kind == .album && $0.year == nil && !$0.id.isEmpty }.map { $0.id }))
+        guard !missing.isEmpty else { return }
+        let api = env.spotify
+        Task {
+            var i = 0
+            while i < missing.count {
+                let chunk = missing[i..<min(i + 4, missing.count)]
+                var add: [String: Int] = [:]
+                await withTaskGroup(of: (String, Int?).self) { g in
+                    for id in chunk {
+                        g.addTask { (id, (try? await api.album(id))?.releaseDate.flatMap { Int($0.prefix(4)) }) }
+                    }
+                    for await (id, y) in g { if let y = y { add[id] = y } }
+                }
+                i += 4
+                if !add.isEmpty {
+                    let found = add
+                    await MainActor.run {
+                        fetchedYears.merge(found) { $1 }
+                        AlbumYears.save(fetchedYears)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Годы альбомов, дочитанные по одному: хранятся на телефоне, чтобы не спрашивать снова.
+enum AlbumYears {
+    private static let key = "library_album_years"
+    static func load() -> [String: Int] { UserDefaults.standard.dictionary(forKey: key) as? [String: Int] ?? [:] }
+    static func save(_ map: [String: Int]) { UserDefaults.standard.set(map, forKey: key) }
 }
 
 struct SpotifyLibraryEntryRow: View {
     let entry: SpotifyLibraryEntry
     /// Закреплено на этом телефоне.
     var pinnedHere = false
+    /// Порядок «Год»: год в подписи альбома.
+    var showYear = false
 
     private var subtitle: String {
         switch entry.kind {
         case .likedSongs: return entry.totalCount > 0 ? LPlural("n_song", entry.totalCount) : L("filter_playlists")
         case .playlist: return [L("ios_playlist"), entry.creator].compactMap { $0 }.joined(separator: " · ")
-        case .album: return [L("ios_album"), entry.creator].compactMap { $0 }.joined(separator: " · ")
+        case .album: return [L("ios_album"), entry.creator, showYear ? entry.year.map(String.init) : nil].compactMap { $0 }.joined(separator: " · ")
         case .artist: return L("ios_artist")
         case .folder: return L("ios_folder")
         }

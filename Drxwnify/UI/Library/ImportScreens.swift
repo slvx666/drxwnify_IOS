@@ -7,14 +7,27 @@ struct ImportPlaylistScreen: View {
     @State private var name = ""
     @State private var text = ""
     @State private var preparing = false
+    /// Красное поле: нажали «Импортировать» без названия, а взять его неоткуда (нет ссылки) — Android 2.3.0.
+    @State private var nameError = false
+
+    private var hasLink: Bool {
+        text.components(separatedBy: .newlines).contains { PlaylistImporter.isPlaylistLink($0.trimmingCharacters(in: .whitespaces)) }
+    }
 
     var body: some View {
         Form {
             if importer.running || importer.total > 0 {
                 ImportProgressSection()
             }
-            Section(footer: Text(L("import_no_download"))) {
+            Section(footer: Text(L("import_links_supported") + "
+" + L("import_no_download"))) {
                 TextField(L("import_name"), text: $name)
+                    .onChange(of: name) { _ in nameError = false }
+                if nameError {
+                    Text(L("import_name_required")).font(.caption).foregroundColor(.red)
+                } else if name.trimmingCharacters(in: .whitespaces).isEmpty && hasLink {
+                    Text(L("import_name_from_link")).font(.caption).foregroundColor(.secondary)
+                }
                 ZStack(alignment: .topLeading) {
                     if text.isEmpty {
                         Text(L("import_paste_placeholder")).foregroundColor(.secondary).padding(.top, 8).padding(.leading, 4)
@@ -42,8 +55,12 @@ struct ImportPlaylistScreen: View {
     }
 
     private func start() {
+        if name.trimmingCharacters(in: .whitespaces).isEmpty && !hasLink {
+            nameError = true
+            return
+        }
         preparing = true
-        let title = name.trimmingCharacters(in: .whitespaces).isEmpty ? L("import_playlist") : name
+        let title = name.trimmingCharacters(in: .whitespaces)
         let pasted = text
         Task {
             let jobs = await PlaylistImporter.parse(pasted, name: title, existing: nil, env: env)
