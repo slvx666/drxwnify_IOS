@@ -444,12 +444,16 @@ struct TopBarIcons: View {
     var body: some View {
         HStack(spacing: UIMetrics.isNarrow ? 12 : 16) {
             NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath") }
+                .accessibility(label: Text(L("history")))
             NavigationLink(destination: TogetherScreen(), isActive: together ?? $localTogether) {
                 Image(systemName: "person.2")
                     .overlay(badge, alignment: .topTrailing)
             }
+            .accessibility(label: Text(L("together")))
             NavigationLink(destination: IntegrationsScreen(settings: env.prefs.settings)) { Image(systemName: "puzzlepiece") }
+                .accessibility(label: Text(L("integrations")))
             NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape") }
+                .accessibility(label: Text(L("settings")))
         }
         .font(.system(size: 17, weight: .regular))
     }

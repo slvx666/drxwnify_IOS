@@ -98,8 +98,10 @@ struct MiniPlayerView: View {
                 FollowArtistButton(artistId: player.current?.artists.first?.id)
                 downloadButton
                 Button(action: toggleLike) { circleLabel(isLiked ? "heart.fill" : "heart", tint: isLiked ? .red : .primary) }
+                    .accessibility(label: Text(L("like"))).accessibility(addTraits: isLiked ? .isSelected : [])
             } else {
                 Button(action: toggleLike) { Image(systemName: isLiked ? "heart.fill" : "heart").foregroundColor(isLiked ? .red : .primary) }
+                    .accessibility(label: Text(L("like"))).accessibility(addTraits: isLiked ? .isSelected : [])
             }
         }
         .foregroundColor(.primary)
@@ -118,6 +120,7 @@ struct MiniPlayerView: View {
             switch downloads.states[t.id] {
             case .done:
                 Button(action: { downloads.remove([t.id]) }) { circleLabel("arrow.down.circle.fill", tint: .accentColor) }
+                    .accessibility(label: Text(L("remove_download")))
             case .downloading(let p):
                 Button(action: { downloads.cancel(t.id) }) {
                     ZStack {
@@ -130,6 +133,7 @@ struct MiniPlayerView: View {
                 Button(action: { downloads.cancel(t.id) }) { circleLabel("xmark", tint: .secondary) }
             default:
                 Button(action: { downloads.download([t]) }) { circleLabel("arrow.down.to.line", tint: .primary) }
+                    .accessibility(label: Text(L("action_download")))
             }
         }
     }
