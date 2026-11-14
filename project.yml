@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.12.3"
-    CURRENT_PROJECT_VERSION: "45"
+    MARKETING_VERSION: "0.12.4"
+    CURRENT_PROJECT_VERSION: "46"
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_BITCODE: "NO"
     SWIFT_STRICT_CONCURRENCY: minimal
@@ -44,7 +44,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIFileSharingEnabled: true
-        NSPhotoLibraryAddUsageDescription: "Сохранять обложки в «Фото»"
+        NSPhotoLibraryAddUsageDescription: "Сохранять обложки и клипы в «Фото»"
         LSSupportsOpeningDocumentsInPlace: true
         CFBundleIcons:
           CFBundlePrimaryIcon:

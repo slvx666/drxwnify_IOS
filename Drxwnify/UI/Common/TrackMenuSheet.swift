@@ -32,6 +32,9 @@ struct TrackMenuSheet: View {
     @State private var showInfo = false
     @State private var showAudio = false
     @State private var showVersion = false
+    @State private var exportURLs: [URL] = []
+    @State private var showEq = false
+    @State private var showClip = false
 
     var body: some View {
         ScrollView {
@@ -46,10 +49,17 @@ struct TrackMenuSheet: View {
                 }
                 group {
                     downloadItem
+                    // Android «Перейти к расположению» (папка скачанного файла): на iOS файл сохраняется в «Файлы», куда выберешь.
+                    if downloads.isDownloaded(track.id) {
+                        item(L("ios_save_to_files"), "folder") {
+                            exportURLs = downloads.exportCopies([track])
+                        }
+                    }
                     item(L(likeKey), isLiked ? "heart.slash" : "heart") { likes.toggle(track) }
                     item(L("add_to_playlist"), "text.badge.plus") { close(then: addToPlaylist) }
                     item(L("track_info"), "info.circle", subtitle: L("details_desc")) { showInfo = true }
                     item(L("share"), "arrowshape.turn.up.right") { sending = true }
+                    item(L("video_clip_download"), "film", subtitle: L("video_clip_download_desc")) { showClip = true }
                 }
                 if isCurrent {
                     group {
@@ -96,6 +106,7 @@ struct TrackMenuSheet: View {
                         item(L("track_version"), "arrow.triangle.2.circlepath", subtitle: L("track_version_desc")) {
                             if let change = changeVersion { close(then: change) } else { showVersion = true }
                         }
+                        item(L("equalizer"), "slider.vertical.3", subtitle: L("equalizer_desc")) { showEq = true }
                         item(L("advanced"), "slider.horizontal.3", subtitle: L("advanced_desc")) { showAudio = true }
                     }
                 }
@@ -116,8 +127,17 @@ struct TrackMenuSheet: View {
         .background(EmptyView().sheet(isPresented: $showAudio) {
             AudioControlSheet().environmentObject(player).modifier(MediumSheet())
         })
+        .background(EmptyView().sheet(isPresented: $showClip) {
+            VideoClipSheet(track: track)
+        })
+        .background(EmptyView().sheet(isPresented: $showEq) {
+            EqualizerSheet().environmentObject(player)
+        })
         .background(EmptyView().sheet(isPresented: $showVersion) {
             SourcePickerScreen().environmentObject(env).environmentObject(player)
+        })
+        .background(EmptyView().sheet(isPresented: Binding(get: { !exportURLs.isEmpty }, set: { if !$0 { exportURLs = [] } })) {
+            ExportToFiles(urls: exportURLs)
         })
         .onAppear { likes.refresh([track]) }
     }

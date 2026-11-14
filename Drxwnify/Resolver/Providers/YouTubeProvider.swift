@@ -65,6 +65,93 @@ final class YouTubeProvider: AudioProvider {
         return out
     }
 
+    // MARK: - Клипы («Скачать видео с YouTube», Android `VideoClipDownloader`)
+
+    /// Фильтр «Видео» в поиске YouTube Music.
+    private static let filterVideo = "EgWKAQIQAWoKEAkQBRAKEAMQBA%3D%3D"
+
+    struct Clip {
+        var videoId: String
+        var title: String
+        var channel: String
+        var durationSec: Int?
+        /// MUSIC_VIDEO_TYPE_OMV (официальный), _UGC (пользовательский), _ATV (звук с обложкой).
+        var videoType: String?
+        var thumbnail: String { "https://i.ytimg.com/vi/\(videoId)/hqdefault.jpg" }
+    }
+
+    func searchClips(_ text: String) async throws -> [Clip] {
+        let body: JSONObject = [
+            "context": ["client": ["clientName": "WEB_REMIX", "clientVersion": Self.remixVersion, "hl": "en", "gl": "US"]],
+            "query": text,
+            "params": Self.filterVideo.removingPercentEncoding ?? Self.filterVideo,
+        ]
+        let root = try await post("https://music.youtube.com/youtubei/v1/search?prettyPrint=false", body: body, headers: [
+            "User-Agent": Self.webUA, "X-YouTube-Client-Name": "67", "X-YouTube-Client-Version": Self.remixVersion,
+            "Origin": "https://music.youtube.com", "Referer": "https://music.youtube.com/",
+        ], timeout: 8)
+        let tabs = root.obj("contents")?.obj("tabbedSearchResultsRenderer")?.objects("tabs") ?? []
+        let sections = tabs.first?.obj("tabRenderer")?.obj("content")?.obj("sectionListRenderer")?.objects("contents") ?? []
+        var out: [Clip] = []
+        for section in sections {
+            for item in section.obj("musicShelfRenderer")?.objects("contents") ?? [] {
+                guard let s = Self.parseSong(item) else { continue }
+                let type = Self.videoType(item)
+                out.append(Clip(videoId: s.videoId, title: s.title, channel: s.artists.joined(separator: ", "), durationSec: s.durationSec, videoType: type))
+            }
+        }
+        return out
+    }
+
+    private static func videoType(_ item: JSONObject) -> String? {
+        let r = item.obj("musicResponsiveListItemRenderer")
+        return r?.obj("overlay")?.obj("musicItemThumbnailOverlayRenderer")?.obj("content")?.obj("musicPlayButtonRenderer")?
+            .obj("playNavigationEndpoint")?.obj("watchEndpoint")?.obj("watchEndpointMusicSupportedConfigs")?
+            .obj("watchEndpointMusicConfig")?.str("musicVideoType")
+    }
+
+    struct VideoStreams {
+        /// H.264 (avc1) дорожки картинки по высоте, без звука.
+        var videos: [(height: Int, url: URL)]
+        var audio: URL
+        var userAgent: String
+    }
+
+    /// Адреса картинки (только avc1 — его понимают «Фото») и звука AAC; клиенты по очереди, как для звука.
+    func videoStreams(videoId: String) async throws -> VideoStreams? {
+        let visitor = await visitorData()
+        for c in Self.clients {
+            var ctx: JSONObject = ["clientName": c.name, "clientVersion": c.version, "hl": "en", "gl": "US"]
+            if let v = c.osName { ctx["osName"] = v }
+            if let v = c.osVersion { ctx["osVersion"] = v }
+            if let v = c.deviceMake { ctx["deviceMake"] = v }
+            if let v = c.deviceModel { ctx["deviceModel"] = v }
+            if let v = c.androidSdkVersion { ctx["androidSdkVersion"] = v }
+            if let v = visitor { ctx["visitorData"] = v }
+            var headers = ["User-Agent": c.userAgent, "X-YouTube-Client-Name": c.id, "X-YouTube-Client-Version": c.version]
+            if let v = visitor { headers["X-Goog-Visitor-Id"] = v }
+            guard let root = try? await post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
+                                             body: ["context": ["client": ctx], "videoId": videoId, "contentCheckOk": true, "racyCheckOk": true],
+                                             headers: headers, timeout: 10),
+                  root.obj("playabilityStatus")?.str("status") == "OK", let data = root.obj("streamingData") else { continue }
+            var videos: [Int: (Int, URL)] = [:]
+            var audio: (Int, URL)?
+            for f in data.objects("adaptiveFormats") {
+                guard let mime = f.str("mimeType"), let s = f.str("url"), let url = URL(string: s) else { continue }
+                let bitrate = f.int("bitrate") ?? 0
+                if mime.hasPrefix("video/mp4") && mime.contains("avc1"), let h = f.int("height") {
+                    if videos[h] == nil || bitrate > videos[h]!.0 { videos[h] = (bitrate, url) }
+                } else if mime.hasPrefix("audio/mp4") {
+                    if let track = f.obj("audioTrack"), track.bool("audioIsDefault") == false { continue }
+                    if audio == nil || bitrate > audio!.0 { audio = (bitrate, url) }
+                }
+            }
+            guard let a = audio, !videos.isEmpty else { continue }
+            return VideoStreams(videos: videos.map { ($0.key, $0.value.1) }.sorted { $0.height > $1.height }, audio: a.1, userAgent: c.userAgent)
+        }
+        return nil
+    }
+
     private static func parseDuration(_ text: String) -> Int? {
         let parts = text.split(separator: ":").map { Int($0) }
         guard parts.count >= 2, parts.count <= 3, !parts.contains(nil) else { return nil }
@@ -105,7 +192,18 @@ final class YouTubeProvider: AudioProvider {
         return Song(videoId: videoId, title: title, artists: artists, durationSec: duration, thumbnail: thumbs.last?.str("url"))
     }
 
+    /// Трек, найденный поиском по YouTube Music: его каталожный id — `ytm_<videoId>`, звук берётся из этого же ролика.
+    static let catalogPrefix = "ytm_"
+
     func search(_ q: AudioQuery) async throws -> ProviderMatch? {
+        if let cid = q.catalogId, cid.hasPrefix(Self.catalogPrefix) {
+            let videoId = String(cid.dropFirst(Self.catalogPrefix.count))
+            if let ready = try await stream(videoId: videoId) {
+                await cache.put(videoId, ready)
+                return ProviderMatch(provider: id, trackId: videoId, title: q.title, artist: q.artists.joined(separator: ", "),
+                                     durationMs: q.durationMs > 0 ? q.durationMs : nil, confidence: 1, thumbnailUrl: nil, qualityKbps: 128)
+            }
+        }
         let text = q.searchText
         if text.trimmingCharacters(in: .whitespaces).isEmpty { return nil }
         let songs = try await searchSongs(text)

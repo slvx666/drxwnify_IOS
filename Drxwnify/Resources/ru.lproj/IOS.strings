@@ -197,3 +197,5 @@
 "ios_stats_week" = "Неделя";
 "ios_stats_month" = "Месяц";
 "ios_stats_year" = "Год";
+"ios_video_saved_photos" = "Клип сохранён в «Фото»";
+"ios_photos_denied" = "Нет доступа к «Фото»: разреши добавление в Настройках iOS";

@@ -240,6 +240,14 @@ private struct SpotifyLibraryContent: View {
     /// Альбомы с годами, дочитанными позже.
     private var allEntries: [SpotifyLibraryEntry] {
         (loader.value ?? []).map { e in
+            // Как на Android: при Spotify вместо его «Любимых» — все лайки приложения (они включают лайки Spotify).
+            // Пока лайков в приложении меньше, чем в Spotify (не импортированы), остаётся список аккаунта.
+            if e.kind == .likedSongs, MainAccount.shared.main == .SPOTIFY, summary.liked > 0, summary.liked >= e.totalCount {
+                var c = e
+                c.totalCount = summary.liked
+                c.uri = SpotifyLibraryEntry.appLikedUri
+                return c
+            }
             guard e.kind == .album, e.year == nil, let y = fetchedYears[e.id] else { return e }
             var c = e
             c.year = y
@@ -696,6 +704,7 @@ struct SpotifyLibraryEntryDestination: View {
         switch entry.kind {
         case .likedSongs where source != nil && source != MainAccount.shared.main:
             SpotifyPlaylistScreen(playlistId: entry.id, name: entry.name, imageUrl: entry.imageUrl)
+        case .likedSongs where entry.uri == SpotifyLibraryEntry.appLikedUri: LocalTrackListScreen(kind: .liked)
         case .likedSongs: SpotifyLikedSongsScreen()
         case .playlist: SpotifyPlaylistScreen(playlistId: entry.id, name: entry.name, imageUrl: entry.imageUrl)
         case .album: SpotifyAlbumScreen(albumId: entry.id, name: entry.name)

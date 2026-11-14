@@ -236,6 +236,7 @@ struct ContentSettingsScreen: View {
             }
             Section(header: Text(L("lyrics"))) {
                 NavigationLink(destination: LyricsSettingsScreen(settings: settings)) { Text(L("lyrics")) }
+                NavigationLink(destination: AiSettingsScreen(settings: settings)) { Text(L("ai_lyrics_translation")) }
             }
             Section(header: Text(L("misc"))) {
                 PrefToggle(title: L("randomize_home_order"), key: PK.randomizeHomeOrder, defaultValue: false, settings: settings)

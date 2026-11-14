@@ -122,6 +122,8 @@ struct SpotifyPlaylistTrack: Codable, Hashable {
 /// Строка «Моей медиатеки» Spotify в порядке самого Spotify (закреплённые, затем недавние).
 struct SpotifyLibraryEntry: Codable, Hashable, Identifiable {
     enum Kind: String, Codable { case playlist = "PLAYLIST", album = "ALBUM", artist = "ARTIST", likedSongs = "LIKED_SONGS", folder = "FOLDER" }
+    /// «Любимые треки» приложения (все лайки), как `APP_LIKED_URI` на Android.
+    static let appLikedUri = "meld:liked"
 
     var kind: Kind
     var id: String

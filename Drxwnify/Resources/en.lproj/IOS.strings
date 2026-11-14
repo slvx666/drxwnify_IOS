@@ -197,3 +197,5 @@
 "ios_stats_week" = "Week";
 "ios_stats_month" = "Month";
 "ios_stats_year" = "Year";
+"ios_video_saved_photos" = "Video saved to Photos";
+"ios_photos_denied" = "No access to Photos: allow adding in iOS Settings";

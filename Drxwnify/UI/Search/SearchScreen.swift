@@ -56,13 +56,33 @@ struct SearchScreen: View {
                     Image(systemName: "xmark.circle.fill").foregroundColor(.secondary)
                 }
             }
+            sourceMenu
         }
-        .padding(.horizontal, 14)
+        .padding(.leading, 14)
+        .padding(.trailing, 6)
         .frame(height: 46)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.secondary.opacity(0.16)))
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 8)
+    }
+
+    /// «Где искать» (Android `SearchSourceButton`): библиотека, Spotify, Яндекс и ВК (если подключены), YouTube Music.
+    private var sourceMenu: some View {
+        Menu {
+            Picker(L("search_source_picker"), selection: $model.source) {
+                ForEach(model.available(env), id: \.self) { s in
+                    Label(s.title, systemImage: s.symbol).tag(s)
+                }
+            }
+        } label: {
+            Image(systemName: model.source.symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundColor(model.source.tint)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(L("search_source_picker"))
     }
 
     private var chips: some View {
@@ -158,7 +178,36 @@ struct SearchScreen: View {
 
     private var results: some View {
         List {
-            if let r = model.result {
+            if model.source == .library, let l = model.local {
+                if l.isEmpty {
+                    Text(L("no_results_found")).foregroundColor(.secondary).listRowBackground(Color.clear)
+                }
+                if (filter == .all || filter == .songs) && !l.tracks.isEmpty {
+                    sectionTitle(L("songs"))
+                    let list = filter == .all ? Array(l.tracks.prefix(8)) : l.tracks
+                    ForEach(Array(list.enumerated()), id: \.offset) { i, t in
+                        TrackRow(track: t, context: list, index: i, queueTitle: model.submitted)
+                    }
+                }
+                if (filter == .all || filter == .artists) && !l.artists.isEmpty {
+                    sectionTitle(L("artists"))
+                    ForEach(l.artists) { a in
+                        NavigationLink(destination: LocalArtistScreen(artist: a)) {
+                            entry(a.thumbnailUrl, a.name, LPlural("n_song", a.songCount), circle: true)
+                        }
+                        .themedRow()
+                    }
+                }
+                if (filter == .all || filter == .playlists) && !l.playlists.isEmpty {
+                    sectionTitle(L("playlists"))
+                    ForEach(l.playlists) { p in
+                        NavigationLink(destination: LocalPlaylistScreen(playlist: p)) {
+                            entry(p.thumbnailUrl ?? p.thumbnails.first, p.name, LPlural("n_song", p.songCount))
+                        }
+                        .themedRow()
+                    }
+                }
+            } else if let r = model.result {
                 if r.isEmpty {
                     Text(L("no_results_found")).foregroundColor(.secondary).listRowBackground(Color.clear)
                 }
@@ -250,6 +299,71 @@ struct SearchScreen: View {
 }
 
 final class SearchModel: ObservableObject {
+    /// Где искать (Android `SearchSource`; «эксперимент по источникам» на iOS не перенесён).
+    enum Source: String, CaseIterable {
+        case library, spotify, yandex, vk, youtube
+
+        var title: String {
+            switch self {
+            case .library: return L("search_source_library")
+            case .spotify: return L("search_source_spotify")
+            case .yandex: return L("search_source_yandex")
+            case .vk: return L("vk_music_name")
+            case .youtube: return L("search_source_youtube")
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .library: return "music.note.house"
+            case .spotify: return "dot.radiowaves.left.and.right"
+            case .yandex: return "music.note"
+            case .vk: return "person.2.wave.2"
+            case .youtube: return "play.rectangle"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .library: return .secondary
+            case .spotify: return Color(red: 0.12, green: 0.84, blue: 0.38)
+            case .yandex: return Color(red: 1, green: 0.8, blue: 0)
+            case .vk: return Color(red: 0.0, green: 0.47, blue: 1)
+            case .youtube: return Color(red: 1, green: 0.18, blue: 0.18)
+            }
+        }
+    }
+
+    struct LocalResult {
+        var tracks: [Track] = []
+        var artists: [LocalArtist] = []
+        var playlists: [LocalPlaylist] = []
+        var isEmpty: Bool { tracks.isEmpty && artists.isEmpty && playlists.isEmpty }
+    }
+
+    @Published var source: Source = Source(rawValue: UserDefaults.standard.string(forKey: "searchSource") ?? "") ?? .spotify {
+        didSet {
+            guard source != oldValue else { return }
+            UserDefaults.standard.set(source.rawValue, forKey: "searchSource")
+            result = nil
+            local = nil
+            search(force: true)
+        }
+    }
+    @Published private(set) var local: LocalResult?
+    private lazy var youtube = YouTubeProvider()
+
+    /// Яндекс и ВК — только когда аккаунт подключён (как на Android).
+    func available(_ env: AppEnvironment) -> [Source] {
+        Source.allCases.filter {
+            switch $0 {
+            case .yandex: return env.spotify.yandex != nil
+            case .vk: return env.spotify.vkCatalog != nil
+            default: return true
+            }
+        }
+    }
+
     @Published var query = "" {
         didSet { if query != oldValue { scheduleSearch() } }
     }
@@ -268,6 +382,7 @@ final class SearchModel: ObservableObject {
             self.env = env
             loadHistory()
         }
+        if !available(env).contains(source) { source = .spotify }
     }
 
     /// Ссылка в строке поиска (Android 2.1.3): Spotify, Яндекс, Drxwnify — открыть экран; YouTube — искать по названию ролика.
@@ -303,6 +418,7 @@ final class SearchModel: ObservableObject {
         if handleLink(q) { return }
         if q.isEmpty {
             result = nil
+            local = nil
             error = nil
             isLoading = false
             return
@@ -337,7 +453,30 @@ final class SearchModel: ObservableObject {
             self.error = nil
         }
         do {
-            let r = try await env.spotify.search(q)
+            let src = await MainActor.run { self.source }
+            if src == .library {
+                let lib = env.library
+                let n = q.lowercased()
+                var l = LocalResult()
+                l.tracks = lib.songs(sort: .playTime, descending: true)
+                    .filter { $0.title.lowercased().contains(n) || $0.artistNames.lowercased().contains(n) || ($0.albumName ?? "").lowercased().contains(n) }
+                l.artists = lib.artists().filter { $0.name.lowercased().contains(n) }
+                l.playlists = lib.playlists().filter { $0.name.lowercased().contains(n) }
+                if Task.isCancelled { return }
+                await MainActor.run {
+                    self.local = l
+                    self.submitted = q
+                    self.isLoading = false
+                }
+                return
+            }
+            let r: SpotifySearchResult
+            switch src {
+            case .library, .spotify: r = try await env.spotify.searchIn(.SPOTIFY, q, limit: 20)
+            case .yandex: r = try await env.spotify.searchIn(.YANDEX, q, limit: 20)
+            case .vk: r = try await env.spotify.searchIn(.VK, q, limit: 20)
+            case .youtube: r = try await youtubeSearch(q)
+            }
             if Task.isCancelled { return }
             await MainActor.run {
                 self.result = r
@@ -352,6 +491,18 @@ final class SearchModel: ObservableObject {
                 self.isLoading = false
             }
         }
+    }
+
+    /// YouTube Music: только треки (как Android-фильтр «Песни»); звук потом ищется обычным путём по названию.
+    private func youtubeSearch(_ q: String) async throws -> SpotifySearchResult {
+        var r = SpotifySearchResult()
+        r.tracks = try await youtube.searchSongs(q).map { s in
+            SpotifyTrack(id: YouTubeProvider.catalogPrefix + s.videoId, name: s.title, artists: s.artists.map { SpotifySimpleArtist(name: $0) },
+                         album: s.thumbnail.map { SpotifySimpleAlbum(images: [SpotifyImage(url: $0)]) },
+                         durationMs: (s.durationSec ?? 0) * 1000)
+        }
+        r.tracksTotal = r.tracks.count
+        return r
     }
 
     // MARK: - История (таблица `search_history`)

@@ -255,6 +255,14 @@ struct HistoryScreen: View {
 private struct HistoryContent: View {
     @ObservedObject var library: LibraryStore
     @State private var entries: [HistoryEntry] = []
+    @State private var query = ""
+
+    /// Поиск по названию и исполнителям, как в Android.
+    private var shown: [HistoryEntry] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return entries }
+        return entries.filter { $0.track.title.lowercased().contains(q) || $0.track.artistNames.lowercased().contains(q) }
+    }
 
     private var groups: [(String, [HistoryEntry])] {
         let cal = Calendar.current
@@ -263,7 +271,7 @@ private struct HistoryContent: View {
         var map: [String: [HistoryEntry]] = [:]
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
-        for e in entries {
+        for e in shown {
             let day = cal.startOfDay(for: e.date)
             let diff = cal.dateComponents([.day], from: day, to: today).day ?? 0
             let key: String
@@ -280,6 +288,10 @@ private struct HistoryContent: View {
 
     var body: some View {
         List {
+            if !entries.isEmpty {
+                LibrarySearchField(text: $query)
+                TrackPlayShuffleRow(tracks: shown.map { $0.track }, queueTitle: L("history"))
+            }
             ForEach(groups, id: \.0) { title, items in
                 Section(header: Text(title)) {
                     ForEach(items) { e in

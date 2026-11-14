@@ -12,6 +12,10 @@ struct LyricsView: View {
     /// Сдвиг текста относительно звука, мс (`song.lyricsOffset`).
     @State private var offsetMs = 0
     @State private var copied = false
+    /// ИИ-перевод: строка (`LyricLine.id`) → перевод.
+    @State private var translated: [Int: String] = [:]
+    @State private var translating = false
+    @State private var translateError: String?
 
     /// Точная позиция: опрос плеера 10 раз в секунду, пока текст на экране (позиция плеера идёт шагом 0,5 с).
     @State private var livePosition: Double = 0
@@ -67,6 +71,7 @@ struct LyricsView: View {
                     }
                 }
                 .overlay(menu, alignment: .topTrailing)
+                .overlay(translateStatus, alignment: .bottom)
             } else {
                 VStack(spacing: 12) {
                     Text(L("lyrics_not_found")).foregroundColor(.secondary)
@@ -87,6 +92,17 @@ struct LyricsView: View {
     }
 
     @ViewBuilder private func lineView(_ line: LyricLine, synced: Bool) -> some View {
+        if let tr = translated[line.id], !tr.isEmpty {
+            VStack(alignment: align, spacing: 2) {
+                originalLine(line, synced: synced)
+                Text(tr).font(.subheadline).foregroundColor(Color.primary.opacity(line.id == currentLine || !synced ? 0.75 : 0.3))
+            }
+        } else {
+            originalLine(line, synced: synced)
+        }
+    }
+
+    @ViewBuilder private func originalLine(_ line: LyricLine, synced: Bool) -> some View {
         if let roman = Romanizer.romanize(line.text) {
             if Romanizer.asMain {
                 VStack(alignment: align, spacing: 2) {
@@ -145,6 +161,12 @@ struct LyricsView: View {
         Menu {
             Button(action: { load(refresh: true) }) { Label(L("refetch"), systemImage: "arrow.clockwise") }
             Button(action: copyAll) { Label(L("ios_copy"), systemImage: "doc.on.doc") }
+            // Android: пункт меню текста включает и выключает ИИ-перевод (ключ — в «Настройки → Контент»).
+            if hasAiKey {
+                Button(action: toggleTranslation) {
+                    Label(L("ai_lyrics_translation"), systemImage: translated.isEmpty ? "character.bubble" : "character.bubble.fill")
+                }
+            }
             Section {
                 Button(action: { shift(-500) }) { Label(L("ios_lyrics_earlier"), systemImage: "backward") }
                 Button(action: { shift(500) }) { Label(L("ios_lyrics_later"), systemImage: "forward") }
@@ -162,6 +184,61 @@ struct LyricsView: View {
                 .foregroundColor(.primary)
         }
         .padding(.top, 4)
+    }
+
+    private var hasAiKey: Bool {
+        let c = LyricsTranslator.Config(settings)
+        return !(c.provider == "DeepL" ? c.deeplKey : c.apiKey).trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    @ViewBuilder private var translateStatus: some View {
+        if translating || translateError != nil {
+            HStack(spacing: 8) {
+                if translating { ProgressView() }
+                Text(translateError ?? L("ai_translating_lyrics")).font(.footnote).lineLimit(3)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Capsule().fill(Color(.secondarySystemBackground)))
+            .padding(.bottom, 8)
+            .onTapGesture { translateError = nil }
+        }
+    }
+
+    private func toggleTranslation() {
+        guard let t = player.current, let l = lyrics else { return }
+        let c = LyricsTranslator.Config(settings)
+        if !translated.isEmpty {
+            translated = [:]
+            LyricsTranslator.save(t.id, nil, c, database: env.database)
+            return
+        }
+        let source = l.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty }
+        translating = true
+        translateError = nil
+        let db = env.database
+        Task {
+            do {
+                let out = try await LyricsTranslator.translate(source.map { $0.text }, c)
+                await MainActor.run {
+                    translating = false
+                    guard player.current?.id == t.id else { return }
+                    apply(out, to: source)
+                    LyricsTranslator.save(t.id, out, c, database: db)
+                }
+            } catch {
+                await MainActor.run {
+                    translating = false
+                    translateError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) { translateError = nil }
+                }
+            }
+        }
+    }
+
+    private func apply(_ out: [String], to source: [LyricLine]) {
+        var map: [Int: String] = [:]
+        for (i, line) in source.enumerated() where i < out.count { map[line.id] = out[i] }
+        translated = map
     }
 
     private func shift(_ ms: Int) {
@@ -191,6 +268,10 @@ struct LyricsView: View {
                 guard player.current?.id == t.id else { return }
                 lyrics = found
                 loading = false
+                translated = [:]
+                if let l = found, let saved = LyricsTranslator.saved(t.id, LyricsTranslator.Config(settings), database: env.database) {
+                    apply(saved, to: l.lines.filter { !$0.text.trimmingCharacters(in: .whitespaces).isEmpty })
+                }
             }
         }
     }

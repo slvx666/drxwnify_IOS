@@ -6,6 +6,21 @@ struct StatsScreen: View {
     @State private var range = 1
     @State private var stats = LibraryStore.Stats()
     @State private var showWrapped = false
+    @State private var query = ""
+
+    /// Поиск по топам (Android: поиск в шапке статистики).
+    private var q: String { query.trimmingCharacters(in: .whitespaces).lowercased() }
+    private var artists: [(name: String, id: String?, image: String?, plays: Int, ms: Int64)] {
+        q.isEmpty ? Array(stats.artists.prefix(10)) : stats.artists.filter { $0.name.lowercased().contains(q) }
+    }
+    private var tracks: [(track: Track, plays: Int, ms: Int64)] {
+        q.isEmpty ? Array(stats.tracks.prefix(20))
+            : stats.tracks.filter { $0.track.title.lowercased().contains(q) || $0.track.artistNames.lowercased().contains(q) }
+    }
+    private var albums: [(name: String, id: String?, image: String?, artist: String, ms: Int64)] {
+        q.isEmpty ? Array(stats.albums.prefix(10))
+            : stats.albums.filter { $0.name.lowercased().contains(q) || $0.artist.lowercased().contains(q) }
+    }
 
     private static let ranges: [(String, Double)] = [("ios_stats_week", 7), ("ios_stats_month", 30), ("ios_stats_year", 365), ("all_time", 0)]
 
@@ -16,6 +31,8 @@ struct StatsScreen: View {
             }
             .pickerStyle(SegmentedPickerStyle())
             .listRowBackground(Color.clear)
+
+            LibrarySearchField(text: $query)
 
             HStack(spacing: 12) {
                 tile("\(stats.totalMs / 60_000)", L("ios_stats_minutes"))
@@ -34,25 +51,45 @@ struct StatsScreen: View {
             .buttonStyle(PlainButtonStyle())
             .listRowBackground(Color.clear)
 
-            if !stats.artists.isEmpty {
+            // «Плейлисты»: как авто-плейлист Android «Самые прослушиваемые за неделю».
+            if q.isEmpty {
+                Section(header: Text(LPlural("n_playlist", 1))) {
+                    NavigationLink(destination: WeeklyMostScreen()) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .font(.system(size: 20, weight: .semibold)).foregroundColor(.white)
+                                .frame(width: 46, height: 46)
+                                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.accentColor))
+                            Text(L("weekly_most_playlist_name")).lineLimit(2)
+                        }
+                    }
+                    .themedRow()
+                }
+            }
+            if !artists.isEmpty {
                 Section(header: Text(L("artists"))) {
-                    ForEach(Array(stats.artists.prefix(10).enumerated()), id: \.offset) { i, a in
-                        row(i + 1, a.image, a.name, minutes(a.ms), circle: true, link: a.id.map { AppLinks.Target(kind: .artist, id: $0, title: a.name, by: nil) })
+                    ForEach(Array(artists.enumerated()), id: \.offset) { i, a in
+                        row(i + 1, a.image, a.name, "\(LPlural("n_time", a.plays)) • \(minutes(a.ms))", circle: true,
+                            link: a.id.map { AppLinks.Target(kind: .artist, id: $0, title: a.name, by: nil) })
                     }
                 }
             }
-            if !stats.tracks.isEmpty {
+            if !tracks.isEmpty {
                 Section(header: Text(L("songs"))) {
-                    let list = stats.tracks.prefix(20).map { $0.track }
-                    ForEach(Array(stats.tracks.prefix(20).enumerated()), id: \.offset) { i, t in
-                        TrackRow(track: t.track, context: Array(list), index: i, queueTitle: L("stats"),
-                                 subtitle: "\(t.track.artistNames) • \(minutes(t.ms))")
+                    let list = tracks.map { $0.track }
+                    TrackPlayShuffleRow(tracks: q.isEmpty ? stats.tracks.map { $0.track } : list, queueTitle: L("most_played_songs"))
+                    ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
+                        TrackRow(track: t.track, context: list, index: i, queueTitle: L("most_played_songs"),
+                                 subtitle: "\(t.track.artistNames) • \(LPlural("n_time", t.plays)) • \(minutes(t.ms))")
                     }
                 }
             }
-            if !stats.albums.isEmpty {
+            if !q.isEmpty && artists.isEmpty && tracks.isEmpty && albums.isEmpty {
+                Text(L("no_results_found")).foregroundColor(.secondary).listRowBackground(Color.clear)
+            }
+            if !albums.isEmpty {
                 Section(header: Text(L("albums"))) {
-                    ForEach(Array(stats.albums.prefix(10).enumerated()), id: \.offset) { i, a in
+                    ForEach(Array(albums.enumerated()), id: \.offset) { i, a in
                         row(i + 1, a.image, a.name, "\(a.artist) • \(minutes(a.ms))", circle: false,
                             link: a.id.flatMap { id in id.isEmpty ? nil : AppLinks.Target(kind: .album, id: id, title: a.name, by: nil) })
                     }
@@ -211,5 +248,33 @@ struct WrappedScreen: View {
         let id = env.library.createPlaylist(name: L("wrapped_playlist_title", String(year)))
         env.library.add(stats.tracks.map { $0.track }, to: id)
         saved = true
+    }
+}
+
+/// «Самые прослушиваемые за неделю» (Android: авто-плейлист `WEEKLY_MOST_PLAYLIST_ID`); здесь считается на лету за 7 дней.
+struct WeeklyMostScreen: View {
+    @EnvironmentObject private var env: AppEnvironment
+    @State private var tracks: [Track] = []
+
+    var body: some View {
+        List {
+            Text(LPlural("n_song", tracks.count)).font(.caption).foregroundColor(.secondary).listRowBackground(Color.clear)
+            TrackPlayShuffleRow(tracks: tracks, queueTitle: L("weekly_most_playlist_name"))
+            ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
+                TrackRow(track: t, context: tracks, index: i, queueTitle: L("weekly_most_playlist_name"))
+            }
+            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
+        }
+        .listStyle(PlainListStyle())
+        .navigationTitle(L("weekly_most_playlist_name"))
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            let lib = env.library
+            let since = Int64((Date().timeIntervalSince1970 - 7 * 86_400) * 1000)
+            DispatchQueue.global(qos: .userInitiated).async {
+                let list = lib.stats(sinceMs: since, limit: 100).tracks.map { $0.track }
+                DispatchQueue.main.async { tracks = list }
+            }
+        }
     }
 }

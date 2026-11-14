@@ -353,7 +353,7 @@ struct StoryView: View {
         VStack(spacing: 18) {
             Spacer()
             cardView(title, lines, items).appear(0.2)
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 Button(L("story_share")) { if let img = snapshot(title, lines, items) { shareItems = [img] } }
                 Button(L("story_save")) { if let img = snapshot(title, lines, items) { UIImageWriteToSavedPhotosAlbum(img, nil, nil, nil) } }
                 Button(L("story_restart")) { go(0) }
@@ -378,8 +378,13 @@ struct StoryView: View {
 
 private struct StoryButton: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
+        // Одной строкой: длинное «Поделиться» уменьшается, а не переносится по слогам.
         configuration.label
-            .padding(.horizontal, 14).padding(.vertical, 9)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
             .background(Capsule().fill(Color.white.opacity(configuration.isPressed ? 0.3 : 0.18)))
             .foregroundColor(.white)
     }

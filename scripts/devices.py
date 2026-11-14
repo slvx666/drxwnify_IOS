@@ -263,7 +263,10 @@ def compare(name, a_route, i_screen, wait=6):
     a = android_shot(OUT / f'{name}-android.png')
     i = ios_shot(OUT / f'{name}-ios.png')
     print('SHOT:', side_by_side(a, i, OUT / f'{name}.png', name))
-    print_buttons('Android buttons', android_buttons())
+    try:
+        print_buttons('Android buttons', android_buttons())
+    except Exception as e:  # uiautomator dump fails while the screen animates
+        print('--- Android buttons: dump failed', e)
     if wda_up():
         print_buttons('iPhone buttons', ios_buttons())
     else:

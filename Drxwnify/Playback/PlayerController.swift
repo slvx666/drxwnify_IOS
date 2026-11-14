@@ -484,7 +484,13 @@ final class PlayerController: NSObject, ObservableObject {
         if !audio.stream.headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = audio.stream.headers }
         let item = AVPlayerItem(asset: AVURLAsset(url: audio.stream.url, options: options))
         item.audioTimePitchAlgorithm = pitchFollowsRate ? .varispeed : .spectral
+        if Equalizer.shared.enabled { Equalizer.shared.attach(to: item) }
         return item
+    }
+
+    /// Эквалайзер включили во время игры: подключить его к текущему и подготовленным элементам.
+    func applyEqualizer() {
+        for item in player.items() where item.audioMix == nil { Equalizer.shared.attach(to: item) }
     }
 
     private func adopt(_ item: AVPlayerItem, _ audio: ResolvedAudio) {
