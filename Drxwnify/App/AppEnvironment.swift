@@ -34,7 +34,13 @@ final class AppEnvironment: ObservableObject {
     @Published var debugLibraryFilter: String?
     @Published var debugSheet: String?
     /// Открыть «Вместе» с главной (приглашение по ссылке, значок в шапке).
-    @Published var showTogether = false
+    /// Не `@Published`: на `env` подписан корень, и каждое открытие «Вместе» перерисовывало всё приложение прямо во время
+    /// перехода (журнал 0.12.8: «changes env» + «renders root» на каждое нажатие, переход подвисал на 0,3–0,4 с).
+    let showTogetherSubject = CurrentValueSubject<Bool, Never>(false)
+    var showTogether: Bool {
+        get { showTogetherSubject.value }
+        set { if newValue != showTogetherSubject.value { showTogetherSubject.send(newValue) } }
+    }
     /// Открытое меню трека (лист в `RootView`).
     @Published var trackMenu: TrackMenuRequest?
     /// Открытое выделение треков (лист в `RootView`).

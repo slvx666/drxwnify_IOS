@@ -501,7 +501,7 @@ struct TopBarIcons: View {
         }
         .font(.system(size: 17, weight: .regular))
         .padding(.trailing, -8)
-        .onReceive(env.$showTogether) { v in
+        .onReceive(env.showTogetherSubject) { v in
             if followsTogether, v != together { together = v }
         }
     }

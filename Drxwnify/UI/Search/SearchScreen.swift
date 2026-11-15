@@ -86,23 +86,15 @@ struct SearchScreen: View {
     }
 
     private var chips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Filter.allCases, id: \.self) { f in
-                    Button(action: { withAnimation(.easeOut(duration: 0.15)) { filter = f } }) {
-                        Text(f.title)
-                            .font(.subheadline.weight(.medium))
-                            .padding(.horizontal, 16)
-                            .frame(height: 34)
-                            .foregroundColor(filter == f ? Color(.systemBackground) : .primary)
-                            .background(Capsule().fill(filter == f ? Color.accentColor : Color.secondary.opacity(0.2)))
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 6)
+        // UIKit-кнопки: SwiftUI-кнопки в горизонтальной прокрутке на iOS 16 срабатывали через раз (журнал 0.12.8).
+        ChipBar(items: Filter.allCases.map { ChipBar.Item(id: $0.rawValue, title: $0.title) }, selected: filter.rawValue) { id in
+            guard let f = Filter(rawValue: id) else { return }
+            // Клавиатура закрывает результаты — убрать её, раз человек выбирает раздел.
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            if f != filter { filter = f }
         }
+        .frame(height: 34)
+        .padding(.bottom, 6)
     }
 
     /// Без запроса — как на Android: история (⏱ запрос ✕ ↖), под ней жанры плитками.

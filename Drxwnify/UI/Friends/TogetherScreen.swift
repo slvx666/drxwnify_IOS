@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 /// Вкладка «Вместе»: профиль, запросы в друзья, друзья с тем, что они слушают, и чаты (SOC-0xx, SOC-1xx).
 struct TogetherScreen: View {
@@ -158,14 +159,20 @@ private struct ListenTogetherTab: View {
 }
 
 /// Аватар друга: base64-JPEG или первая буква имени.
+///
+/// Картинка раскодируется один раз, в фоне и сразу под размер кружка. Раньше `UIImage(data:)` стоял прямо в `body`:
+/// на каждую перерисовку (а странички друзей перерисовываются от каждого события с релеев) и на каждую прокрутку
+/// система заново раскодировала полноразмерный JPEG на главном потоке — на iPhone 8 до 1,5 с, нажатия терялись.
 struct FriendAvatar: View {
     let name: String
     let avatar: String?
     var size: CGFloat = 44
 
+    @StateObject private var loader = AvatarLoader()
+
     var body: some View {
         Group {
-            if let a = avatar, let data = Data(base64Encoded: a), let image = UIImage(data: data) {
+            if let image = loader.image {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: .fill)
             } else {
                 ZStack {
@@ -176,6 +183,68 @@ struct FriendAvatar: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
+        .onAppear { loader.load(avatar, size: size) }
+        .onChange(of: avatar) { loader.load($0, size: size) }
+        .onChange(of: size) { loader.load(avatar, size: $0) }
+    }
+}
+
+final class AvatarLoader: ObservableObject {
+    @Published private(set) var image: UIImage?
+    private var key: AvatarImages.Key?
+
+    func load(_ avatar: String?, size: CGFloat) {
+        guard let a = avatar, !a.isEmpty else { key = nil; if image != nil { image = nil }; return }
+        let k = AvatarImages.Key(avatar: a, pixels: Int(size * UIScreen.main.scale))
+        if k == key { return }
+        key = k
+        if let cached = AvatarImages.cached(k) { image = cached; return }
+        AvatarImages.decode(k) { [weak self] img in
+            guard let self = self, self.key == k else { return }
+            self.image = img
+        }
+    }
+}
+
+/// Раскодированные аватары: по строке base64 и размеру в пикселях; раскодирование и уменьшение — в фоне.
+enum AvatarImages {
+    struct Key: Hashable {
+        let avatar: String
+        let pixels: Int
+    }
+
+    private static var cache: [Key: UIImage] = [:]
+    private static var waiting: [Key: [(UIImage?) -> Void]] = [:]
+    private static let queue = DispatchQueue(label: "avatar.decode", qos: .userInitiated)
+
+    static func cached(_ k: Key) -> UIImage? { cache[k] }
+
+    static func decode(_ k: Key, _ done: @escaping (UIImage?) -> Void) {
+        if waiting[k] != nil { waiting[k]?.append(done); return }
+        waiting[k] = [done]
+        queue.async {
+            let img = make(k)
+            DispatchQueue.main.async {
+                if let img = img {
+                    if cache.count > 64 { cache.removeAll() }
+                    cache[k] = img
+                }
+                for d in waiting.removeValue(forKey: k) ?? [] { d(img) }
+            }
+        }
+    }
+
+    private static func make(_ k: Key) -> UIImage? {
+        guard let data = Data(base64Encoded: k.avatar, options: .ignoreUnknownCharacters),
+              let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(k.pixels, 32),
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
     }
 }
 
