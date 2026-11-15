@@ -622,17 +622,31 @@ final class FriendsHub: ObservableObject {
 
     func helloTag(to: String) -> String { "\(Self.dPrefix)\(Self.fHello):\(to)" }
 
+    /// Шифрование и подпись — на своей очереди: secp256k1 у нас на чистом Swift, и на iPhone 8 одна подпись — десятки мс,
+    /// а при открытии «Вместе» их набиралось на секунду с лишним прямо на главном потоке (журнал касаний 0.12.8).
+    /// Очередь последовательная, отправка — на главном в том же порядке.
+    private static let signQueue = DispatchQueue(label: "friends.sign", qos: .userInitiated)
+
+    private func signAndPublish(_ make: @escaping () -> NostrEvent?) {
+        Self.signQueue.async { [weak self] in
+            guard let event = make() else { return }
+            DispatchQueue.main.async { self?.relays.publish(event) }
+        }
+    }
+
     private func publishTo(_ friend: String, _ field: String, _ content: String) {
         guard let sk = secretKey else { return }
-        let encrypted = content.isEmpty ? "" : (Nostr.encrypt(privateKey: sk, to: friend, plain: content) ?? "")
-        if !content.isEmpty && encrypted.isEmpty { return }
         let tags = [["d", "\(Self.dPrefix)\(field):\(friend)"], ["p", friend]]
-        relays.publish(Nostr.sign(privateKey: sk, kind: Nostr.kindAppData, tags: tags, content: encrypted))
+        signAndPublish {
+            let encrypted = content.isEmpty ? "" : (Nostr.encrypt(privateKey: sk, to: friend, plain: content) ?? "")
+            if !content.isEmpty && encrypted.isEmpty { return nil }
+            return Nostr.sign(privateKey: sk, kind: Nostr.kindAppData, tags: tags, content: encrypted)
+        }
     }
 
     private func publishPublic(_ field: String, _ content: String) {
         guard let sk = secretKey else { return }
-        relays.publish(Nostr.sign(privateKey: sk, kind: Nostr.kindAppData, tags: [["d", Self.dPrefix + field], ["t", "drxwnify"]], content: content))
+        signAndPublish { Nostr.sign(privateKey: sk, kind: Nostr.kindAppData, tags: [["d", Self.dPrefix + field], ["t", "drxwnify"]], content: content) }
     }
 
     private func publishField(_ field: String, _ content: String, _ audience: Audience, onlyFor: String? = nil) {
@@ -661,7 +675,7 @@ final class FriendsHub: ObservableObject {
         if let a = me.avatar { p["pic"] = a }
         publishPublic(Self.fProfile, JSON.string(p))
         let metadata = privacy.discoverable ? JSON.string(["name": me.name, "about": "Drxwnify"]) : "{}"
-        relays.publish(Nostr.sign(privateKey: sk, kind: Nostr.kindMetadata, tags: [], content: metadata))
+        signAndPublish { Nostr.sign(privateKey: sk, kind: Nostr.kindMetadata, tags: [], content: metadata) }
     }
 
     /// Из плеера: что играет сейчас (трек, пауза, перемотка). С задержкой 1,5 с.
@@ -703,44 +717,82 @@ final class FriendsHub: ObservableObject {
         publishLibrary()
     }
 
-    /// История, плейлисты, лайки и статистика — каждому, кому разрешено настройками.
+    /// История, плейлисты, лайки и статистика — каждому, кому разрешено настройками. База читается не на главном
+    /// потоке (при открытии «Вместе» это подвешивало приложение на 0,3 с), отправка — на главном.
     func publishLibrary(onlyFor: String? = nil) {
         guard secretKey != nil else { return }
-        let p = privacy
-        if p.history != .NOBODY { publishHistory(p.history, onlyFor: onlyFor) }
-        if p.playlists != .NOBODY {
-            let playlists: [JSONObject] = ((try? database.pool.read { db -> [JSONObject] in
-                let rows = try Row.fetchAll(db, sql: "SELECT id, name FROM playlist ORDER BY createdAt ASC, rowid ASC LIMIT ?", arguments: [Self.maxPlaylists])
-                return try rows.map { r in
-                    let id: String = r["id"]
-                    let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = ?", arguments: [id]) ?? 0
-                    let refs = try Self.refs(db, sql: """
-                        SELECT song.id, song.title, song.duration, song.thumbnailUrl FROM playlist_song_map m JOIN song ON song.id = m.songId
-                        WHERE m.playlistId = ? ORDER BY m.position LIMIT ?
-                        """, arguments: [id, Self.maxPlaylistTracks], withCover: false)
-                    return ["n": r["name"] as String, "total": total, "tracks": refs.map(Self.refJSON)] as JSONObject
+        if onlyFor == nil {
+            guard !libraryReading else { return }
+            libraryReading = true
+        }
+        let p = privacy, database = self.database
+        Self.libraryQueue.async { [weak self] in
+            var snap = LibrarySnapshot()
+            try? database.pool.read { db in
+                if p.history != .NOBODY { snap.history = try Self.historyRefs(db) }
+                if p.playlists != .NOBODY {
+                    snap.playlists = try Self.playlistsJSON(db)
+                    snap.likes = try Self.likeRefs(db)
                 }
-            }) ?? [])
+                if p.stats != .NOBODY { snap.stats = try Self.statsJSON(db) }
+            }
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if onlyFor == nil { self.libraryReading = false }
+                self.sendLibrary(snap, p, onlyFor: onlyFor)
+            }
+        }
+    }
+
+    private struct LibrarySnapshot {
+        var history: [TrackRef]?
+        var playlists: [JSONObject]?
+        var likes: (refs: [TrackRef], total: Int) = ([], 0)
+        var stats: JSONObject?
+    }
+    private static let libraryQueue = DispatchQueue(label: "friends.library", qos: .utility)
+    private var libraryReading = false
+
+    private func sendLibrary(_ snap: LibrarySnapshot, _ p: Privacy, onlyFor: String?) {
+        guard secretKey != nil else { return }
+        if let h = snap.history {
+            publishField(Self.fHistory, JSON.string(["tracks": h.map(Self.refJSON)]), p.history, onlyFor: onlyFor)
+        }
+        if let playlists = snap.playlists {
             publishField(Self.fPlaylists, JSON.string(["playlists": playlists]), p.playlists, onlyFor: onlyFor)
-            publishLikes(p.playlists, onlyFor: onlyFor)
+            sendLikes(snap.likes.refs, total: snap.likes.total, p.playlists, onlyFor: onlyFor)
         }
         if p.stats != .NOBODY {
-            let weekAgo = Self.nowMs() - 7 * 24 * 3600 * 1000
-            let stats: JSONObject? = try? database.pool.read { db in
-                let row = try Row.fetchOne(db, sql: "SELECT COALESCE(SUM(playTime), 0) AS t, COUNT(*) AS n FROM event WHERE timestamp > ?", arguments: [weekAgo])
-                let liked = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM song WHERE liked = 1") ?? 0
-                let top = try Row.fetchAll(db, sql: """
-                    SELECT a.name AS name, COUNT(DISTINCT e.songId) AS c FROM event e JOIN song_artist_map m ON m.songId = e.songId
-                    JOIN artist a ON a.id = m.artistId WHERE e.timestamp > ? GROUP BY a.id ORDER BY SUM(e.playTime) DESC LIMIT 5
-                    """, arguments: [weekAgo]).map { ["n": $0["name"] as String, "c": $0["c"] as Int] as JSONObject }
-                let total: Int64 = row?["t"] ?? 0
-                return ["min": Int(total / 60000), "plays": row?["n"] as Int? ?? 0, "liked": liked, "top": top]
-            }
-            if let s = stats { publishField(Self.fStats, JSON.string(s), p.stats, onlyFor: onlyFor) }
+            if let s = snap.stats { publishField(Self.fStats, JSON.string(s), p.stats, onlyFor: onlyFor) }
             if let packed = store.string("portraitPacked") { publishField(Self.fPortrait, packed, p.stats, onlyFor: onlyFor) }
         }
         if onlyFor == nil { refreshPortrait() }
         if onlyFor == nil { store.setLong(Int(Self.nowMs()), for: "libraryAt") }
+    }
+
+    private static func playlistsJSON(_ db: Database) throws -> [JSONObject] {
+        let rows = try Row.fetchAll(db, sql: "SELECT id, name FROM playlist ORDER BY createdAt ASC, rowid ASC LIMIT ?", arguments: [Self.maxPlaylists])
+        return try rows.map { r in
+            let id: String = r["id"]
+            let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM playlist_song_map WHERE playlistId = ?", arguments: [id]) ?? 0
+            let refs = try Self.refs(db, sql: """
+                SELECT song.id, song.title, song.duration, song.thumbnailUrl FROM playlist_song_map m JOIN song ON song.id = m.songId
+                WHERE m.playlistId = ? ORDER BY m.position LIMIT ?
+                """, arguments: [id, Self.maxPlaylistTracks], withCover: false)
+            return ["n": r["name"] as String, "total": total, "tracks": refs.map(Self.refJSON)] as JSONObject
+        }
+    }
+
+    private static func statsJSON(_ db: Database) throws -> JSONObject {
+        let weekAgo = Self.nowMs() - 7 * 24 * 3600 * 1000
+        let row = try Row.fetchOne(db, sql: "SELECT COALESCE(SUM(playTime), 0) AS t, COUNT(*) AS n FROM event WHERE timestamp > ?", arguments: [weekAgo])
+        let liked = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM song WHERE liked = 1") ?? 0
+        let top = try Row.fetchAll(db, sql: """
+            SELECT a.name AS name, COUNT(DISTINCT e.songId) AS c FROM event e JOIN song_artist_map m ON m.songId = e.songId
+            JOIN artist a ON a.id = m.artistId WHERE e.timestamp > ? GROUP BY a.id ORDER BY SUM(e.playTime) DESC LIMIT 5
+            """, arguments: [weekAgo]).map { ["n": $0["name"] as String, "c": $0["c"] as Int] as JSONObject }
+        let total: Int64 = row?["t"] ?? 0
+        return ["min": Int(total / 60000), "plays": row?["n"] as Int? ?? 0, "liked": liked, "top": top]
     }
 
     /// Собирает свой портрет (не чаще раза в 20 ч, сразу — если сменилась версия подсчёта) и отправляет друзьям.
@@ -814,14 +866,29 @@ final class FriendsHub: ObservableObject {
     }
 
     private func publishHistory(_ audience: Audience, onlyFor: String?) {
-        let refs: [TrackRef] = (try? database.pool.read { db in
-            // Последние разные треки; прослушивание засчитано (как `Listening.counts`): ≥ 30 с или половина трека.
-            try Self.refs(db, sql: """
-                SELECT song.id, song.title, song.duration, song.thumbnailUrl, MAX(e.timestamp) AS at FROM event e JOIN song ON song.id = e.songId
-                WHERE e.playTime >= MIN(30000, song.duration * 500) GROUP BY song.id ORDER BY at DESC LIMIT ?
-                """, arguments: [Self.maxHistory], withCover: true)
-        }) ?? []
-        publishField(Self.fHistory, JSON.string(["tracks": refs.map(Self.refJSON)]), audience, onlyFor: onlyFor)
+        let database = self.database
+        Self.libraryQueue.async { [weak self] in
+            let read: [TrackRef]? = try? database.pool.read { db in try Self.historyRefs(db) }
+            let refs = read ?? []
+            DispatchQueue.main.async {
+                self?.publishField(Self.fHistory, JSON.string(["tracks": refs.map(Self.refJSON)]), audience, onlyFor: onlyFor)
+            }
+        }
+    }
+
+    /// Последние разные треки; прослушивание засчитано (как `Listening.counts`): ≥ 30 с или половина трека.
+    private static func historyRefs(_ db: Database) throws -> [TrackRef] {
+        try Self.refs(db, sql: """
+            SELECT song.id, song.title, song.duration, song.thumbnailUrl, MAX(e.timestamp) AS at FROM event e JOIN song ON song.id = e.songId
+            WHERE e.playTime >= MIN(30000, song.duration * 500) GROUP BY song.id ORDER BY at DESC LIMIT ?
+            """, arguments: [Self.maxHistory], withCover: true)
+    }
+
+    private static func likeRefs(_ db: Database) throws -> (refs: [TrackRef], total: Int) {
+        let refs = try Self.refs(db, sql: "SELECT id, title, duration, thumbnailUrl FROM song WHERE liked = 1 ORDER BY likedDate DESC LIMIT ?",
+                                 arguments: [Self.maxLikes], withCover: true)
+        let total = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM song WHERE liked = 1") ?? refs.count
+        return (refs, total)
     }
 
     private static func refs(_ db: Database, sql: String, arguments: StatementArguments, withCover: Bool) throws -> [TrackRef] {
@@ -842,12 +909,16 @@ final class FriendsHub: ObservableObject {
 
     /// Лайки уходят заново, только если изменились (или раз в 3 дня, чтобы релеи их хранили).
     private func publishLikes(_ audience: Audience, onlyFor: String?) {
-        let refs: [TrackRef] = (try? database.pool.read { db in
-            try Self.refs(db, sql: "SELECT id, title, duration, thumbnailUrl FROM song WHERE liked = 1 ORDER BY likedDate DESC LIMIT ?",
-                          arguments: [Self.maxLikes], withCover: true)
-        }) ?? []
+        let database = self.database
+        Self.libraryQueue.async { [weak self] in
+            let read: (refs: [TrackRef], total: Int)? = try? database.pool.read { db in try Self.likeRefs(db) }
+            let refs = read?.refs ?? [], total = read?.total ?? 0
+            DispatchQueue.main.async { self?.sendLikes(refs, total: total, audience, onlyFor: onlyFor) }
+        }
+    }
+
+    private func sendLikes(_ refs: [TrackRef], total: Int, _ audience: Audience, onlyFor: String?) {
         guard !refs.isEmpty else { return }
-        let total = (try? database.pool.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM song WHERE liked = 1") ?? 0 }) ?? refs.count
         let source = (store.string("likesSource") ?? "")
         let content = Self.packLikesFitting(SharedLikes(total: total, source: source.isEmpty ? nil : source, tracks: refs))
         // Стабильный между запусками хеш (hashValue в Swift случаен для каждого запуска).

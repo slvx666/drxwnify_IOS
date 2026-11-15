@@ -5,21 +5,22 @@ import SwiftUI
 /// свои миксы Spotify, остальная лента Spotify, «Глубже в каталог», «Похоже на …» в самом конце.
 /// Новичку — стартовые подборки с сайта обзоров.
 struct HomeScreen: View {
-    @EnvironmentObject private var env: AppEnvironment
+    private var env: AppEnvironment { AppEnvironment.shared }
 
     var body: some View {
         let _ = RenderCount.hit("homeScreen")
-        HomeContent(settings: env.prefs.settings, feed: HomeFeed.shared, friends: env.friends)
-            .rootTitle(L("home")) { TopBarIcons(together: $env.showTogether) }
+        HomeContent(settings: env.prefs.settings, feed: HomeFeed.shared)
+            .rootTitle(L("home")) { TopBarIcons(followsTogether: true) }
     }
 }
 
+/// Подписана только на свои данные (настройки, ленту, модель): не на `env`, плеер и друзей — их изменения
+/// перерисовывали всю главную (0,2–0,5 с на iPhone 8, при подключении к релеям — сотню раз подряд).
 private struct HomeContent: View {
-    @EnvironmentObject private var env: AppEnvironment
-    @EnvironmentObject private var player: PlayerController
+    private var env: AppEnvironment { AppEnvironment.shared }
+    private var player: PlayerController { env.player }
     @ObservedObject var settings: TypedStore
     @ObservedObject var feed: HomeFeed
-    @ObservedObject var friends: FriendsHub
     @StateObject private var model = HomeModel()
     @State private var openFriend: String?
 
@@ -75,14 +76,13 @@ private struct HomeContent: View {
     }
 
     @ViewBuilder private var sections: some View {
-        let friendsRow = FriendListening.list(friends)
         if model.newcomer {
             if model.starter != nil, let grid = model.forYou, !grid.isEmpty {
                 Text(L("starter_picks_note")).font(.caption).foregroundColor(.secondary).padding(.horizontal, 16)
                 forYouSection(grid)
             }
             if let s = model.starter { starterSections(s) }
-            if !friendsRow.isEmpty { friendsSection(friendsRow) }
+            FriendsListeningSection(friends: env.friends) { friendsSection($0) }
         } else {
             if let grid = model.forYou, !grid.isEmpty { forYouSection(grid) }
             if !model.newReleases.isEmpty {
@@ -96,7 +96,7 @@ private struct HomeContent: View {
                     TrackCardsRow(tracks: row.tracks, title: row.genre ?? "")
                 }
             }
-            if !friendsRow.isEmpty { friendsSection(friendsRow) }
+            FriendsListeningSection(friends: env.friends) { friendsSection($0) }
             if let genres = data?.genres, !genres.isEmpty {
                 section(L("home_your_genres"), label: L("home_your_genres_label")) { GenreTilesRow(genres: genres) }
             }
@@ -195,8 +195,9 @@ struct ForYouGrid: View {
     let starting: Bool
     let play: (SpotifyTrack) -> Void
     let dice: () -> Void
-    @EnvironmentObject private var env: AppEnvironment
-    @EnvironmentObject private var player: PlayerController
+    private var env: AppEnvironment { AppEnvironment.shared }
+    private var player: PlayerController { env.player }
+    @ObservedObject private var playing = NowPlayingID.shared
     @State private var page = 0
 
     private enum Cell: Hashable { case track(SpotifyTrack), dice }
@@ -254,7 +255,7 @@ struct ForYouGrid: View {
         switch c {
         case .track(let t):
             ArtworkView(url: cover(t), size: cell, cornerRadius: 6)
-                .overlay(player.current?.catalogId == t.id ? RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor, lineWidth: 3) : nil)
+                .overlay(playing.catalogId == t.id ? RoundedRectangle(cornerRadius: 6).stroke(Color.accentColor, lineWidth: 3) : nil)
                 .contentShape(Rectangle())
                 .onTapGesture { play(t) }
                 .onLongPressGesture { env.trackMenu = TrackMenuRequest(track: Track(t)) }
@@ -279,8 +280,9 @@ struct ForYouGrid: View {
 struct TrackCardsRow: View {
     let tracks: [SpotifyTrack]
     var title: String?
-    @EnvironmentObject private var env: AppEnvironment
-    @EnvironmentObject private var player: PlayerController
+    private var env: AppEnvironment { AppEnvironment.shared }
+    private var player: PlayerController { env.player }
+    @ObservedObject private var playing = NowPlayingID.shared
 
     private var shown: [(offset: Int, element: SpotifyTrack)] {
         var seen = Set<String>()
@@ -302,7 +304,7 @@ struct TrackCardsRow: View {
         VStack(alignment: .leading, spacing: 3) {
             ArtworkView(url: cover(t), size: cardWidth, cornerRadius: 8)
             Text(t.name).font(.footnote.weight(.semibold)).lineLimit(1)
-                .foregroundColor(player.current?.catalogId == t.id ? .accentColor : .primary)
+                .foregroundColor(playing.catalogId == t.id ? .accentColor : .primary)
             Text(t.artistNames).font(.caption2).foregroundColor(.secondary).lineLimit(1)
         }
         .frame(width: cardWidth, alignment: .leading)
@@ -518,5 +520,16 @@ struct FriendsListeningRow: View {
         if minutes < 60 { return L("home_minutes_ago", minutes) }
         if minutes < 48 * 60 { return L("home_hours_ago", minutes / 60) }
         return L("home_days_ago", minutes / (24 * 60))
+    }
+}
+
+/// «Друзья слушают»: подписан на друзей сам, чтобы их события не перерисовывали всю главную.
+private struct FriendsListeningSection<Content: View>: View {
+    @ObservedObject var friends: FriendsHub
+    let content: ([FriendListening]) -> Content
+
+    var body: some View {
+        let list = FriendListening.list(friends)
+        if !list.isEmpty { content(list) }
     }
 }

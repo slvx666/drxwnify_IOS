@@ -40,6 +40,10 @@ final class AppEnvironment: ObservableObject {
     /// Открытое выделение треков (лист в `RootView`).
     @Published var trackSelection: TrackBatch?
 
+    /// Единственный экземпляр — для видов, которым нужны службы, но не перерисовка на каждое изменение `env`
+    /// (подписанные через `@EnvironmentObject` перерисовываются на любое из его полей).
+    private(set) static var shared: AppEnvironment!
+
     init() {
         prefs = Prefs()
         database = Self.openDatabase()
@@ -84,6 +88,7 @@ final class AppEnvironment: ObservableObject {
         Task.detached { await hashes.sync() }
         Task.detached { await RemoteConfig.shared.refreshIfNeeded() }
         wireFriends()
+        Self.shared = self
         // Ответы разработчика на предложку — немного после запуска, когда релеи подключатся.
         Suggestions.shared.friends = friends
         RemotePlaylists.shared.configure(self)
@@ -110,6 +115,12 @@ final class AppEnvironment: ObservableObject {
     /// Что играет — друзьям (now, с задержкой 1,5 с), прослушивания — в историю друзей; «слушать вместе» ведёт плеер за другом.
     private func wireFriends() {
         let f = friends, p = player, c = chats
+        // Что играет — для подсветки карточек: ряды подписаны на это, а не на весь плеер.
+        Publishers.CombineLatest(p.$currentIndex, p.$queue)
+            .map { i, q in i.flatMap { q.indices.contains($0) ? q[$0].catalogId : nil } }
+            .removeDuplicates()
+            .sink { NowPlayingID.shared.catalogId = $0 }
+            .store(in: &bag)
         Publishers.CombineLatest(p.$currentIndex, p.$isPlaying)
             .removeDuplicates { $0.0 == $1.0 && $0.1 == $1.1 }
             .sink { _, playing in
@@ -171,4 +182,11 @@ final class AppEnvironment: ObservableObject {
             fatalError("Не удалось создать базу: \(error)")
         }
     }
+}
+
+/// Каталожный id играющего трека: карточки подсвечивают текущий, не подписываясь на весь плеер
+/// (плеер меняется десятки раз за запуск трека, и вся главная перерисовывалась).
+final class NowPlayingID: ObservableObject {
+    static let shared = NowPlayingID()
+    @Published var catalogId: String?
 }

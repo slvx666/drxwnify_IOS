@@ -472,28 +472,38 @@ struct UnreadBadge: ViewModifier {
 
 /// Значки в шапке главной и библиотеки, как на Android: история, «Вместе» (с числом непрочитанных), интеграции, настройки.
 struct TopBarIcons: View {
-    var together: Binding<Bool>?
-    @EnvironmentObject private var env: AppEnvironment
+    /// Главная: «Вместе» открывается и снаружи (приглашение по ссылке, `env.showTogether`).
+    var followsTogether = false
+    private var env: AppEnvironment { AppEnvironment.shared }
     @EnvironmentObject private var chats: ChatHub
-    @State private var localTogether = false
+    @State private var together = false
 
     var body: some View {
         let _ = RenderCount.hit("topbar")
-        HStack(spacing: UIMetrics.isNarrow ? 2 : 6) {
-            NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath").barHit() }
+        // Значки вплотную, каждый — квадрат во всю высоту шапки: раньше между ними и под ними были щели, куда
+        // палец попадал мимо (по журналу касаний — каждое пятое нажатие).
+        HStack(spacing: 0) {
+            NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath").barIcon() }
                 .accessibility(label: Text(L("history")))
-            NavigationLink(destination: TogetherScreen(), isActive: together ?? $localTogether) {
+            NavigationLink(destination: TogetherScreen(), isActive: Binding(get: { together }, set: { v in
+                together = v
+                if followsTogether, env.showTogether != v { env.showTogether = v }
+            })) {
                 Image(systemName: "person.2")
                     .overlay(badge, alignment: .topTrailing)
-                    .barHit()
+                    .barIcon()
             }
             .accessibility(label: Text(L("together")))
-            NavigationLink(destination: IntegrationsScreen(settings: env.prefs.settings)) { Image(systemName: "puzzlepiece").barHit() }
+            NavigationLink(destination: IntegrationsScreen(settings: env.prefs.settings)) { Image(systemName: "puzzlepiece").barIcon() }
                 .accessibility(label: Text(L("integrations")))
-            NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape").barHit() }
+            NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape").barIcon() }
                 .accessibility(label: Text(L("settings")))
         }
         .font(.system(size: 17, weight: .regular))
+        .padding(.trailing, -8)
+        .onReceive(env.$showTogether) { v in
+            if followsTogether, v != together { together = v }
+        }
     }
 
     @ViewBuilder private var badge: some View {
@@ -558,6 +568,11 @@ extension View {
     /// Кнопка панели: зона нажатия 36×36 вокруг значка (раньше — только сам значок).
     func barHit() -> some View {
         frame(minWidth: 36, minHeight: 36).contentShape(Rectangle())
+    }
+
+    /// Значок шапки: квадрат 44×44 (высота шапки) — нажатие засчитывается по всей клетке, а не только по рисунку.
+    func barIcon() -> some View {
+        frame(width: UIMetrics.isNarrow ? 40 : 44, height: 44).contentShape(Rectangle())
     }
 
     func rootTitle<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {

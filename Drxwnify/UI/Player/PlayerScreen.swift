@@ -120,7 +120,7 @@ struct PlayerScreen: View {
     private var header: some View {
         HStack {
             Button(action: { presentation.wrappedValue.dismiss() }) {
-                Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
+                Image(systemName: "chevron.down").font(.title3.weight(.semibold)).frame(width: 56, height: 52).contentShape(Rectangle())
             }
             Spacer()
             VStack(spacing: 2) {
@@ -137,12 +137,13 @@ struct PlayerScreen: View {
             }
             Spacer()
             Button(action: { env.homeRequest += 1 }) {
-                Image(systemName: "house").font(.title3).frame(width: 44, height: 44)
+                // Клетка больше значка: по журналу палец часто попадал рядом с ним.
+                Image(systemName: "house").font(.title3).frame(width: 56, height: 52).contentShape(Rectangle())
             }
         }
         .foregroundColor(.primary)
-        .padding(.horizontal, -12)
-        .padding(.top, compact ? 0 : 6)
+        .padding(.horizontal, -18)
+        .padding(.top, compact ? 0 : 2)
     }
 
     // MARK: - Обложка

@@ -101,14 +101,32 @@ final class TouchProbe: UIGestureRecognizer, UIGestureRecognizerDelegate {
 /// Подвисания главного потока: раз в 100 мс отдельный поток стучится в главный; не ответил за 100 мс — в журнал,
 /// сколько он был занят.
 enum HangWatch {
+    private static var mainThread: pthread_t?
+
     static func start() {
+        mainThread = pthread_self()
+        // Глобальные создаются лениво — создать до первого сигнала, не внутри обработчика.
+        hangFrames[0] = nil
+        hangFrameCount = 0
+        _ = hangSampled
+        signal(SIGUSR2) { _ in
+            hangFrameCount = backtrace(hangFrames, 48)
+            hangSampled.signal()
+        }
         let t = Thread {
             while true {
                 let sem = DispatchSemaphore(value: 0)
                 let t0 = CACurrentMediaTime()
                 DispatchQueue.main.async { sem.signal() }
                 if sem.wait(timeout: .now() + 0.1) == .timedOut {
-                    sem.wait()
+                    // Занят дольше 0,3 с — снимок стека главного потока (до 4 за одно подвисание, раз в 0,5 с):
+                    // видно, какая функция его держит.
+                    var samples = 0
+                    var waitFor = 0.2
+                    while sem.wait(timeout: .now() + waitFor) == .timedOut {
+                        if samples < 4 { sample(String(format: "%.0f", (CACurrentMediaTime() - t0) * 1000)); samples += 1 }
+                        waitFor = 0.5
+                    }
                     TouchProbe.note(String(format: "HANG %.0fms", (CACurrentMediaTime() - t0) * 1000))
                 }
                 usleep(100_000)
@@ -117,6 +135,39 @@ enum HangWatch {
         t.name = "HangWatch"
         t.qualityOfService = .utility
         t.start()
+    }
+}
+
+/// Буфер для снимка стека: обработчик сигнала пишет сюда (без выделения памяти).
+private let hangFrames = UnsafeMutablePointer<UnsafeMutableRawPointer?>.allocate(capacity: 48)
+private var hangFrameCount: Int32 = 0
+private let hangSampled = DispatchSemaphore(value: 0)
+
+extension HangWatch {
+    /// Остановить главный поток сигналом, снять его стек и записать: образ+смещение и имя, если есть.
+    fileprivate static func sample(_ at: String) {
+        guard let main = mainThread else { return }
+        hangFrameCount = 0
+        guard pthread_kill(main, SIGUSR2) == 0, hangSampled.wait(timeout: .now() + 0.2) == .success else { return }
+        var lines: [String] = []
+        for i in 0..<Int(hangFrameCount) {
+            guard let addr = hangFrames[i] else { continue }
+            var info = Dl_info()
+            if dladdr(addr, &info) != 0 {
+                let image = info.dli_fname.map { String(cString: $0).split(separator: "/").last.map(String.init) ?? "?" } ?? "?"
+                let off = Int(bitPattern: addr) - Int(bitPattern: info.dli_fbase)
+                let sym = info.dli_sname.map { String(cString: $0) } ?? ""
+                lines.append("\(image)+0x\(String(off, radix: 16)) \(sym.prefix(90))")
+            } else {
+                lines.append(String(describing: addr))
+            }
+        }
+        // Первые два кадра — сам обработчик сигнала.
+        let frames = lines.dropFirst(2)
+        for (n, chunk) in stride(from: 0, to: frames.count, by: 6).enumerated() {
+            let part = frames.dropFirst(chunk).prefix(6).joined(separator: " | ")
+            TouchProbe.note("STACK@\(at)ms[\(n)] \(part)")
+        }
     }
 }
 

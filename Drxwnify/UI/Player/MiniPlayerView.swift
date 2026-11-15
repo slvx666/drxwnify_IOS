@@ -10,7 +10,6 @@ struct MiniPlayerView: View {
     let style: Style
     @Binding var showPlayer: Bool
     @EnvironmentObject private var player: PlayerController
-    @EnvironmentObject private var env: AppEnvironment
     @EnvironmentObject private var likes: LikeManager
     @EnvironmentObject private var downloads: DownloadManager
 
@@ -89,13 +88,19 @@ struct MiniPlayerView: View {
                 }
                 Spacer(minLength: 0)
             }
+            // Во всю высоту плашки: раньше полосы сверху и снизу от текста нажатия не ловили.
+            .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
-            .onTapGesture { showPlayer = true }
-            .gesture(DragGesture(minimumDistance: 30).onEnded { g in
-                if abs(g.translation.width) > abs(g.translation.height) {
-                    if g.translation.width < -40 { player.skipNext() }
-                    if g.translation.width > 40 { player.skipPrevious() }
-                } else if g.translation.height < -30 {
+            // Один жест на нажатие и смахивание: обычное нажатие срывалось, если палец сдвигался больше чем на 10 pt
+            // (по журналу — часто), теперь сдвиг до 24 pt — всё ещё нажатие.
+            .gesture(DragGesture(minimumDistance: 0).onEnded { g in
+                let dx = g.translation.width, dy = g.translation.height
+                if abs(dx) < 24 && abs(dy) < 24 {
+                    showPlayer = true
+                } else if abs(dx) > abs(dy) {
+                    if dx < -40 { player.skipNext() }
+                    if dx > 40 { player.skipPrevious() }
+                } else if dy < -30 {
                     showPlayer = true
                 }
             })
@@ -160,7 +165,7 @@ func circleLabel(_ symbol: String, tint: Color) -> some View {
 /// Подписка на исполнителя играющего трека (значок человека в мини-плеере Android).
 struct FollowArtistButton: View {
     let artistId: String?
-    @EnvironmentObject private var env: AppEnvironment
+    private var env: AppEnvironment { AppEnvironment.shared }
     @State private var following: Bool?
     private static var cache: [String: Bool] = [:]
 
