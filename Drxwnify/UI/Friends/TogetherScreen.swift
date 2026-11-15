@@ -511,10 +511,15 @@ struct MyProfileScreen: View {
                         Label(L("ios_friends_copy_code"), systemImage: "doc.on.doc")
                     }
                     Text(me.code).font(.system(.caption, design: .monospaced)).foregroundColor(.secondary).lineLimit(1)
+                    if let tags = friends.myPortrait?.tags, !tags.isEmpty { PortraitTags(tags: tags) }
                     NavigationLink(destination: ProfilePreviewScreen()) {
                         Label(L("ios_how_others_see"), systemImage: "eye")
                     }
                 }
+            }
+            // Свой портрет прямо в профиле, как на Android.
+            if let portrait = friends.myPortrait {
+                PortraitSection(portrait: portrait, queueTitle: friends.profile?.name ?? "")
             }
             Section(header: Text(L("ios_privacy"))) {
                 audiencePicker(L("ios_privacy_now"), \.nowPlaying)

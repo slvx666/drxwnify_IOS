@@ -25,6 +25,9 @@ struct ChatScreen: View {
     @State private var fromBottom: CGFloat = 0
     /// Низ ленты (несколько последних строк) на экране: пока виден — кнопки «вниз» нет.
     @State private var bottomVisible = true
+    /// «Выбрать» (Android): выделенные сообщения; nil — обычный режим.
+    @State private var selection: Set<String>?
+    @State private var forwardingMany: [ChatMessage]?
     @EnvironmentObject private var env: AppEnvironment
 
     private static let quickReactions = ["❤️", "🔥", "😂", "👍", "😮", "😢"]
@@ -62,6 +65,9 @@ struct ChatScreen: View {
                                     bubble(m)
                                 }
                             }
+                            // В режиме выбора строки отодвигаются вправо: кружок слева не налезает на сообщение.
+                            .padding(.leading, selection != nil && line.day == nil ? 34 : 0)
+                            .overlay(selectionOverlay(line))
                             .flippedRow()
                             .id(line.id)
                         }
@@ -76,8 +82,12 @@ struct ChatScreen: View {
                 .onPreferenceChange(ChatOffsetKey.self) { fromBottom = $0 }
                 .overlay(scrollDownButton(proxy), alignment: .bottomTrailing)
             }
-            inputBar
-                .padding(.bottom, miniPlayerGap)
+            if let sel = selection {
+                selectionBar(sel)
+            } else {
+                inputBar
+                    .padding(.bottom, miniPlayerGap)
+            }
         }
         .overlay(menuOverlay)
         .navigationTitle(name)
@@ -85,6 +95,9 @@ struct ChatScreen: View {
         .hidesTabChrome()
         .background(EmptyView().sheet(item: $forwarding) { m in
             ForwardSheet(message: m, from: peer).environmentObject(friends).environmentObject(chats)
+        })
+        .background(EmptyView().sheet(isPresented: Binding(get: { forwardingMany != nil }, set: { if !$0 { forwardingMany = nil } })) {
+            ForwardSheet(messages: forwardingMany ?? [], from: peer).environmentObject(friends).environmentObject(chats)
         })
         .onAppear {
             env.chatOpen = true
@@ -198,6 +211,7 @@ struct ChatScreen: View {
                 actionRow(L("ios_copy"), "doc.on.doc") { UIPasteboard.general.string = m.text.isEmpty ? (m.card?.label ?? "") : Stickers.plain(m.text) }
             }
             actionRow(L("ios_forward"), "arrowshape.turn.up.right") { forwarding = m }
+            actionRow(L("chat_select"), "checkmark.circle") { withAnimation(.easeOut(duration: 0.2)) { selection = [m.id] } }
             if m.mine && !m.text.isEmpty { actionRow(L("ios_edit"), "pencil") { editing = m; replyTo = nil; text = m.text } }
             if m.mine && m.state == ChatMessage.stateFailed { actionRow(L("retry"), "arrow.clockwise") { chats.retry(m) } }
             if m.mine { actionRow(L("ios_delete_for_both"), "trash", destructive: true) { chats.delete(m, forBoth: true) } }
@@ -221,6 +235,59 @@ struct ChatScreen: View {
         }
         .buttonStyle(PlainButtonStyle())
         .overlay(Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 0.5), alignment: .bottom)
+    }
+
+    // MARK: - Выбор нескольких сообщений
+
+    /// В режиме выбора вся строка — переключатель, слева кружок с галочкой.
+    @ViewBuilder private func selectionOverlay(_ line: ChatLine) -> some View {
+        if let sel = selection, line.day == nil {
+            let ids = line.batch.map { $0.id }
+            let on = ids.contains { sel.contains($0) }
+            Button(action: {
+                var s = sel
+                if on { ids.forEach { s.remove($0) } } else { ids.forEach { s.insert($0) } }
+                withAnimation(.easeOut(duration: 0.15)) { selection = s }
+            }) {
+                HStack {
+                    Image(systemName: on ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 22)).foregroundColor(on ? .accentColor : .secondary)
+                        .padding(.leading, 8)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(on ? Color.accentColor.opacity(0.12) : Color.clear)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+    }
+
+    private func selectionBar(_ sel: Set<String>) -> some View {
+        let chosen = messages.filter { sel.contains($0.id) }
+        return HStack(spacing: 18) {
+            Button(L("cancel")) { withAnimation(.easeOut(duration: 0.2)) { selection = nil } }
+            Text(LPlural("n_selected", chosen.count)).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity)
+            Button(action: {
+                UIPasteboard.general.string = chosen.map { $0.text.isEmpty ? ($0.card?.label ?? "") : Stickers.plain($0.text) }.joined(separator: "\n")
+                selection = nil
+            }) { Image(systemName: "doc.on.doc").frame(width: 36, height: 36) }
+            .disabled(chosen.isEmpty)
+            .accessibilityLabel(L("ios_copy"))
+            Button(action: { forwardingMany = chosen; selection = nil }) {
+                Image(systemName: "arrowshape.turn.up.right").frame(width: 36, height: 36)
+            }
+            .disabled(chosen.isEmpty)
+            .accessibilityLabel(L("ios_forward"))
+            Button(action: {
+                chosen.forEach { chats.delete($0, forBoth: false) }
+                selection = nil
+            }) { Image(systemName: "trash").foregroundColor(.red).frame(width: 36, height: 36) }
+            .disabled(chosen.isEmpty)
+            .accessibilityLabel(L("ios_delete_for_me"))
+        }
+        .padding(.horizontal, 16).frame(height: 54)
+        .background(BlurView(style: .systemChromeMaterial).ignoresSafeArea(edges: .bottom))
     }
 
     /// «Вниз», как в Telegram: плавно появляется, когда отлистал вверх, и уходит у самого низа.

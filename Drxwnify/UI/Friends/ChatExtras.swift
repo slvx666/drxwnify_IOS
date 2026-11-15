@@ -134,8 +134,14 @@ struct MessageActionsSheet: View {
 
 /// Переслать сообщение другому другу (Android 2.2.1): текст и карточка музыки уходят как есть.
 struct ForwardSheet: View {
-    let message: ChatMessage
+    let messages: [ChatMessage]
     let from: String
+
+    init(message: ChatMessage, from: String) { self.init(messages: [message], from: from) }
+    init(messages: [ChatMessage], from: String) {
+        self.messages = messages
+        self.from = from
+    }
     @EnvironmentObject private var friends: FriendsHub
     @EnvironmentObject private var chats: ChatHub
     @Environment(\.presentationMode) private var presentation
@@ -161,7 +167,9 @@ struct ForwardSheet: View {
     }
 
     private func forward(to peer: String) {
-        chats.send(peer, text: message.text, music: message.card.map { [$0] } ?? [])
+        for message in messages {
+            chats.send(peer, text: message.text, music: message.card.map { [$0] } ?? [])
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         presentation.wrappedValue.dismiss()
     }
