@@ -199,3 +199,9 @@
 "ios_stats_year" = "Год";
 "ios_video_saved_photos" = "Клип сохранён в «Фото»";
 "ios_photos_denied" = "Нет доступа к «Фото»: разреши добавление в Настройках iOS";
+"ios_ytm_info_title" = "Вход в YouTube Music пока не сделан";
+"ios_ytm_info_body" = "Здесь должен быть вход в Google-аккаунт: из него в приложение подтягивались бы лайки, плейлисты и подписки YouTube Music, а лайки уходили бы обратно. Звук с YouTube играет и без входа.";
+"ios_ytm_info_footer" = "Если тебе это нужно — напиши в предложку, и это сделают.";
+"ios_ytm_info_ask" = "Попросить в предложке";
+"ios_history_local" = "Локальная";
+"ios_scroll_down" = "Вниз";

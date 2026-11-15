@@ -21,7 +21,7 @@ struct VkLoginScreen: View {
     @State private var showCaptchaPage = false
 
     var body: some View {
-        Form {
+        Form { ThemedRows {
             Section(footer: Text(L("vk_password_note"))) {
                 TextField(L("vk_login_phone_or_email"), text: $username)
                     .autocapitalization(.none)
@@ -75,7 +75,8 @@ struct VkLoginScreen: View {
             Section(footer: Text(L("vk_privacy_note"))) {
                 Button(L("vk_login_via_page")) { showPage = true }
             }
-        }
+        }}
+        .themedList()
         .navigationTitle(L("vk_login"))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showPage) {

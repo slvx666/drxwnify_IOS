@@ -306,9 +306,16 @@ final class ChatHub: ObservableObject {
         if liveSub != nil && liveKeys == keys { return }
         closeLive()
         liveKeys = keys
-        liveSub = relays.subscribe([inboxFilter(me, since: since())]) { [weak self] in self?.onEvent($0) }
+        // Ещё свои исходящие: «прочитано» и сообщения, отправленные с Android тем же ключом, — сразу и здесь.
+        var own: JSONObject = ["kinds": [Self.kindDM], "authors": [me], "since": since()]
+        if let s = senders() { own["#p"] = Array(s) }
+        liveSub = relays.subscribe([inboxFilter(me, since: since()), own]) { [weak self] e in
+            guard let self = self else { return }
+            if e.pubkey == me { self.onOwnEvent(e) } else { self.onEvent(e) }
+        }
         retryOutbox()
         syncHistoryOnce()
+        syncReadOnce()
     }
 
     // MARK: - История с релеев (после восстановления копии)
@@ -341,6 +348,24 @@ final class ChatHub: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.relays.close(subId) }
     }
 
+    /// Прочитанное на Android: тот же ключ шлёт собеседнику «прочитано до …» — по своим таким событиям за год
+    /// отмечаем прочитанным и здесь (один раз; дальше — живая подписка). Без своего сервера: события уже на релеях.
+    private func syncReadOnce() {
+        guard let me = me else { return }
+        let flag = "chat_read_synced_v1_" + me
+        if UserDefaults.standard.bool(forKey: flag) { return }
+        UserDefaults.standard.set(true, forKey: flag)
+        var own: JSONObject = ["kinds": [Self.kindDM], "authors": [me], "since": Int64(Date().timeIntervalSince1970) - Self.historyS]
+        if let s = senders() { own["#p"] = Array(s) }
+        var subId = ""
+        var ends = 0
+        subId = relays.subscribe([own], onEose: { [weak self] in
+            ends += 1
+            if ends >= 3 { self?.relays.close(subId) }
+        }) { [weak self] e in self?.onOwnEvent(e) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.relays.close(subId) }
+    }
+
     /// Своё сообщение, отправленное с другого телефона (Android) тем же ключом.
     private func onOwnEvent(_ event: NostrEvent) {
         guard let me = me, let sk = friends.secretKey, event.pubkey == me, let peer = event.tag("p"), peer != me,
@@ -370,6 +395,12 @@ final class ChatHub: ObservableObject {
                 old.deleted = true
                 update(old)
             }
+        case Self.kRead:
+            // Прочитано на другом телефоне: входящие от этого друга до `upTo` — прочитанные и здесь.
+            let upTo = Int64(o.int("upTo") ?? 0)
+            guard upTo > 0 else { return }
+            try? db?.write { try $0.execute(sql: "UPDATE message SET read = 1 WHERE owner = ? AND peer = ? AND mine = 0 AND read = 0 AND ts <= ?",
+                                            arguments: [me, peer, upTo]) }
         default:
             return
         }

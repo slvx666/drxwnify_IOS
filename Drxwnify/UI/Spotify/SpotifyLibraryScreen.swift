@@ -148,7 +148,7 @@ private struct SpotifyLibraryContent: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 5) {
                         if pins.pinned.contains(LibraryPins.localKey(p.id)) {
-                            Image(systemName: "pin.fill").font(.caption2).foregroundColor(.green)
+                            Image(systemName: "pin.fill").font(.caption2).foregroundColor(LibraryAccent.color())
                         }
                         Text(p.name).lineLimit(1)
                     }
@@ -389,7 +389,7 @@ private struct SpotifyLibraryContent: View {
                 // Порядок «Год» списком: заголовок там, где начинается год (закреплённые сверху — без повторов).
                 ForEach(Array(yearRows.enumerated()), id: \.offset) { _, row in
                     if let y = row.year {
-                        Text(String(y)).font(.headline).foregroundColor(.accentColor)
+                        Text(String(y)).font(.headline).foregroundColor(LibraryAccent.color())
                             .padding(.top, 8).listRowBackground(Color.clear).listRowSeparatorHiddenCompat()
                     }
                     NavigationLink(destination: SpotifyLibraryEntryDestination(entry: row.entry)) {
@@ -445,8 +445,8 @@ private struct SpotifyLibraryContent: View {
             Text(chipTitle(f))
                 .font(.subheadline.weight(.medium))
                 .padding(.horizontal, 16).frame(height: 36)
-                .foregroundColor(selected ? Color(.systemBackground) : .primary)
-                .background(Capsule().fill(selected ? Color.accentColor : Color.secondary.opacity(0.22)))
+                .foregroundColor(selected ? LibraryAccent.onColor() : .primary)
+                .background(Capsule().fill(selected ? LibraryAccent.color() : Color.secondary.opacity(0.22)))
         }
         .buttonStyle(PlainButtonStyle())
     }
@@ -522,8 +522,8 @@ private struct SpotifyLibraryContent: View {
                     Label(yearFilter.map(String.init) ?? L("lib_year_filter"), systemImage: "slider.horizontal.3")
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 10).frame(height: 30)
-                        .foregroundColor(yearFilter != nil ? Color(.systemBackground) : .primary)
-                        .background(Capsule().fill(yearFilter != nil ? Color.accentColor : Color.secondary.opacity(0.22)))
+                        .foregroundColor(yearFilter != nil ? LibraryAccent.onColor() : .primary)
+                        .background(Capsule().fill(yearFilter != nil ? LibraryAccent.color() : Color.secondary.opacity(0.22)))
                 }
             }
             // Стрелка — обратный порядок, как на Android.
@@ -646,7 +646,7 @@ struct SpotifyLibraryEntryRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 5) {
                     if entry.pinned || pinnedHere {
-                        Image(systemName: "pin.fill").font(.caption2).foregroundColor(pinnedHere ? .accentColor : .green)
+                        Image(systemName: "pin.fill").font(.caption2).foregroundColor(LibraryAccent.color())
                     }
                     Text(entry.kind == .likedSongs ? L("liked_songs") : entry.name).lineLimit(1)
                 }
@@ -689,7 +689,7 @@ struct SpotifyLibraryEntryCell: View {
 
     @ViewBuilder private var pin: some View {
         if entry.pinned || pinnedHere {
-            Image(systemName: "pin.fill").font(.caption2).foregroundColor(.white)
+            Image(systemName: "pin.fill").font(.caption2).foregroundColor(LibraryAccent.color())
                 .padding(5).background(Circle().fill(Color.black.opacity(0.55))).padding(4)
         }
     }

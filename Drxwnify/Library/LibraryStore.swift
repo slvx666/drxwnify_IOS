@@ -86,6 +86,8 @@ final class LibraryStore: ObservableObject {
                 let id: String = r["id"]
                 let songId: String = r["songId"]
                 let name: String = r["name"]
+                // Одна и та же связь может лежать несколько раз (разные позиции из копии) — «Grivo, Grivo, Grivo».
+                if artists[songId]?.contains(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) == true { continue }
                 artists[songId, default: []].append(Track.Artist(id: spotify ?? (id.hasPrefix("LA") ? nil : id), name: name))
             }
         }

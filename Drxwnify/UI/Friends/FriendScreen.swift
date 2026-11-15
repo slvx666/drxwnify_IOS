@@ -14,10 +14,11 @@ struct FriendScreen: View {
     private var name: String { data?.name ?? friends.friends.first { $0.pubkey == pubkey }?.name ?? String(pubkey.prefix(8)) }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             VStack(spacing: 8) {
                 FriendAvatar(name: name, avatar: data?.avatar, size: UIMetrics.scaled(96))
                 Text(name).font(.title3.weight(.bold))
+                if let tags = data?.portrait?.tags, !tags.isEmpty { PortraitTags(tags: tags) }
                 if previewData == nil {
                 NavigationLink(destination: ChatScreen(peer: pubkey)) {
                     Label(L("ios_chat"), systemImage: "bubble.left.and.bubble.right.fill")
@@ -42,7 +43,9 @@ struct FriendScreen: View {
                     }
                 }
             }
-            if let s = data?.stats {
+            if let portrait = data?.portrait {
+                PortraitSection(portrait: portrait, queueTitle: name)
+            } else if let s = data?.stats {
                 Section(header: Text(L("stats"))) {
                     HStack {
                         statCell("\(s.weekMinutes)", L("ios_stats_minutes"))
@@ -94,7 +97,8 @@ struct FriendScreen: View {
                 }
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)

@@ -306,23 +306,7 @@ struct PlayerScreen: View {
     // MARK: - Ползунок
 
     private var slider: some View {
-        let total = max(player.duration, 1)
-        return VStack(spacing: 2) {
-            Slider(value: Binding(get: { min(scrub ?? player.position, total) }, set: { scrub = $0 }), in: 0...total) { editing in
-                if !editing, let s = scrub {
-                    player.seek(to: s)
-                    // Держим значение, пока плеер не доложит новую позицию.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { scrub = nil }
-                }
-            }
-            HStack {
-                Text(formatDuration(ms: Int((scrub ?? player.position) * 1000)))
-                Spacer()
-                Text(formatDuration(ms: Int(player.duration * 1000)))
-            }
-            .font(.caption.monospacedDigit())
-            .foregroundColor(.secondary)
-        }
+        PositionSlider(clock: player.clock, scrub: $scrub)
     }
 
     // MARK: - Управление
@@ -524,6 +508,33 @@ struct CoverViewer: View {
         guard let u = SpotifyImageCDN.candidates(url).first else { return }
         ImagePipeline.shared.loadImage(with: u) { result in
             if case .success(let r) = result { use(r.image) }
+        }
+    }
+}
+
+/// Ползунок и время: следит за `PlaybackClock`, так что дважды в секунду перерисовывается только он.
+private struct PositionSlider: View {
+    @ObservedObject var clock: PlaybackClock
+    @Binding var scrub: Double?
+    @EnvironmentObject private var player: PlayerController
+
+    var body: some View {
+        let total = max(player.duration, 1)
+        return VStack(spacing: 2) {
+            Slider(value: Binding(get: { min(scrub ?? clock.position, total) }, set: { scrub = $0 }), in: 0...total) { editing in
+                if !editing, let s = scrub {
+                    player.seek(to: s)
+                    // Держим значение, пока плеер не доложит новую позицию.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { scrub = nil }
+                }
+            }
+            HStack {
+                Text(formatDuration(ms: Int((scrub ?? clock.position) * 1000)))
+                Spacer()
+                Text(formatDuration(ms: Int(player.duration * 1000)))
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundColor(.secondary)
         }
     }
 }

@@ -29,7 +29,7 @@ struct BackupScreen: View {
     @State private var found: [URL] = []
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(footer: Text(L("ios_backup_restore_note"))) {
                 Button(action: { showPicker = true }) {
                     Label(L("action_restore"), systemImage: "square.and.arrow.down")
@@ -64,10 +64,11 @@ struct BackupScreen: View {
                 summarySection(L("ios_backup_in_file"), restored)
             }
             summarySection(L("ios_backup_now"), current)
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("backup_restore"))
-        .miniPlayerInset()
         .onAppear(perform: reload)
         .sheet(isPresented: $showPicker) {
             DocumentPicker { url in

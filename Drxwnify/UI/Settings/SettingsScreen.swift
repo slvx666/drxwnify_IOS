@@ -7,7 +7,7 @@ struct SettingsScreen: View {
     @EnvironmentObject private var env: AppEnvironment
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("settings_section_ui"))) {
                 settingsLink(L("appearance"), "paintpalette", AppearanceSettingsScreen(settings: env.prefs.settings))
             }
@@ -36,7 +36,8 @@ struct SettingsScreen: View {
                 settingsLink(L("about"), "info.circle", AboutScreen())
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("settings"))
     }
@@ -100,7 +101,7 @@ struct AppearanceSettingsScreen: View {
     @ObservedObject var settings: TypedStore
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("app_theme_title"))) {
                 ForEach(AppTheme.allCases) { theme in
                     Button(action: { env.setTheme(theme) }) {
@@ -156,7 +157,8 @@ struct AppearanceSettingsScreen: View {
                 PrefToggle(title: L("show_top_playlist"), key: PK.showTopPlaylist, defaultValue: true, settings: settings)
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("appearance"))
     }
@@ -169,7 +171,8 @@ struct PlayerSettingsScreen: View {
     @EnvironmentObject private var player: PlayerController
 
     var body: some View {
-        List {
+        List { ThemedRows {
+            SourcePickSection(settings: settings)
             Section(header: Text(L("player"))) {
                 NavigationLink(destination: MusicSourcesScreen()) { Text(L("music_sources")) }
                 Stepper(value: Binding(get: { Int(settings.get(PK.historyDuration) ?? 30) },
@@ -212,7 +215,8 @@ struct PlayerSettingsScreen: View {
                 PrefToggle(title: L("prevent_duplicate_tracks_in_queue"), key: PK.preventDuplicateTracksInQueue, defaultValue: false, settings: settings)
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("player_and_audio"))
     }
@@ -225,7 +229,7 @@ struct ContentSettingsScreen: View {
     @ObservedObject var settings: TypedStore
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("general"))) {
                 PrefToggle(title: L("hide_explicit"), key: PK.hideExplicit, defaultValue: false, settings: settings)
             }
@@ -244,7 +248,8 @@ struct ContentSettingsScreen: View {
                            options: ["10", "20", "50", "100"].map { ($0, $0) }, settings: settings)
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("content"))
     }
@@ -282,7 +287,7 @@ struct IntegrationsScreen: View {
     private var lastfmLinked: Bool { !(settings.get(PK.lastfmSession) ?? "").isEmpty }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("general"))) {
                 integrationRow(L("music_sources"), "music.note.list", L("ios_integrations_sources_desc"), connected: false, MusicSourcesScreen())
                 integrationRow("Spotify", "music.note", L("integration_spotify_description"), connected: spotifyLinked,
@@ -291,6 +296,7 @@ struct IntegrationsScreen: View {
                                YandexAccountScreen(settings: settings))
                 integrationRow(L("vk_music"), "music.note.house", L("integration_vk_description"), connected: vkLinked,
                                VkAccountScreen(settings: settings))
+                integrationRow("YouTube Music", "play.rectangle", L("integration_youtube_description"), connected: false, YouTubeMusicInfoScreen())
                 integrationRow("SoundCloud", "cloud", L("integration_soundcloud_description"), connected: false, SoundCloudImportScreen())
                 integrationRow("Last.fm", "dot.radiowaves.up.forward", L("ios_lastfm_genres_desc"), connected: lastfmLinked,
                                LastFMSettingsScreen(settings: settings))
@@ -302,7 +308,8 @@ struct IntegrationsScreen: View {
                 integrationRow(L("app_stats_title"), "chart.bar", L("app_stats_desc"), connected: false, AppStatsScreen())
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("integrations"))
     }
@@ -330,7 +337,7 @@ struct SpotifyAccountScreen: View {
     private var linked: Bool { !(settings.get(PK.spotifySpDc) ?? "").isEmpty }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             accountHeader("music.note", "Spotify", linked ? (settings.get(PK.spotifyUsername) ?? L("vk_connected")) : L("spotify_login_description"), connected: linked)
             Section {
                 if linked {
@@ -346,8 +353,10 @@ struct SpotifyAccountScreen: View {
                     Button(L("action_logout")) { confirmLogout = true }.foregroundColor(.red)
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle("Spotify")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showLogin) { SpotifyLoginScreen().environmentObject(env) }
@@ -372,7 +381,7 @@ struct YandexAccountScreen: View {
     private var linked: Bool { !(settings.get(PK.yandexAccessToken) ?? "").isEmpty }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             accountHeader("y.circle", L("yandex_music"), linked ? (settings.get(PK.yandexUsername) ?? L("vk_connected")) : L("integration_yandex_description"), connected: linked)
             if linked {
                 AccountCommonSection(source: .YANDEX)
@@ -392,8 +401,10 @@ struct YandexAccountScreen: View {
                     Button(action: { showLogin = true }) { Label(L("yandex_login"), systemImage: "person.crop.circle.badge.plus") }
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("yandex_music"))
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showLogin) { YandexLoginScreen().environmentObject(env) }
@@ -406,7 +417,7 @@ struct VkAccountScreen: View {
     private var linked: Bool { !(settings.get(PK.vkAccessToken) ?? "").isEmpty }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             accountHeader("music.note.house", L("vk_music"), linked ? L("vk_connected") : L("integration_vk_description"), connected: linked)
             if linked {
                 AccountCommonSection(source: .VK)
@@ -425,8 +436,10 @@ struct VkAccountScreen: View {
                     NavigationLink(destination: VkLoginScreen()) { Label(L("vk_login"), systemImage: "person.crop.circle.badge.plus") }
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("vk_music"))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -439,7 +452,7 @@ struct PrivacySettingsScreen: View {
     @EnvironmentObject private var friends: FriendsHub
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section {
                 PrefToggle(title: L("pause_listen_history"), key: PK.pauseListenHistory, defaultValue: false, settings: settings)
                 PrefToggle(title: L("pause_search_history"), key: PK.pauseSearchHistory, defaultValue: false, settings: settings)
@@ -449,8 +462,10 @@ struct PrivacySettingsScreen: View {
                     NavigationLink(destination: MyProfileScreen()) { Text(L("ios_friends_my_profile")) }
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("privacy"))
     }
 }
@@ -462,7 +477,7 @@ struct MessagesSettingsScreen: View {
     static let reactions = ["❤️", "👍", "🔥", "😂", "😭", "😍", "🤯", "👎", "😢", "😮", "😡", "🤔", "👏", "🎉", "💯", "🙏", "👀"]
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("chat_quick_reaction")), footer: Text(L("settings_messages_quick_desc"))) {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 10) {
                     ForEach(Self.reactions, id: \.self) { e in
@@ -479,8 +494,10 @@ struct MessagesSettingsScreen: View {
             Section {
                 Toggle(L("chat_notify"), isOn: Binding(get: { chat.bool("notify") ?? true }, set: { chat.setBool($0, for: "notify") }))
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("settings_messages"))
     }
 
@@ -501,7 +518,7 @@ struct StorageSettingsScreen: View {
     @State private var imageBytes = 0
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("downloaded_songs"))) {
                 HStack {
                     Text(L("downloaded_songs"))
@@ -527,8 +544,10 @@ struct StorageSettingsScreen: View {
                 }
                 .foregroundColor(.red)
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("storage"))
         .onAppear {
             imageBytes = ((ImagePipeline.shared.configuration.dataCache as? DataCache)?.totalSize ?? 0) + URLCache.shared.currentDiskUsage
@@ -553,7 +572,7 @@ struct AboutScreen: View {
     }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section {
                 HStack {
                     Text("Drxwnify")
@@ -580,8 +599,10 @@ struct AboutScreen: View {
                     Label("GitHub", systemImage: "link")
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("about"))
         .onAppear { if case .idle = checker.state { checker.check() } }
     }
@@ -642,7 +663,7 @@ struct LastFMSettingsScreen: View {
     @State private var error: String?
 
     var body: some View {
-        List {
+        List { ThemedRows {
             if !LastFM.isConfigured {
                 Text(L("ios_lastfm_no_key")).foregroundColor(.secondary)
             } else if let name = settings.get(PK.lastfmUsername), !(settings.get(PK.lastfmSession) ?? "").isEmpty {
@@ -665,8 +686,10 @@ struct LastFMSettingsScreen: View {
                     .disabled(username.isEmpty || password.isEmpty || working)
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle("Last.fm")
     }
 
@@ -705,5 +728,61 @@ struct TimePrefRow: View {
 
     var body: some View {
         DatePicker(title, selection: date, displayedComponents: .hourAndMinute)
+    }
+}
+
+/// «Качество и скорость звука» (Android `sourcePickMode`): Авто, Скорость, Качество — строки с галочкой и пояснением.
+struct SourcePickSection: View {
+    @ObservedObject var settings: TypedStore
+
+    private static let modes: [(String, String)] = [("AUTO", "source_pick_auto"), ("SPEED", "source_pick_speed"), ("QUALITY", "source_pick_quality")]
+
+    var body: some View {
+        Section(header: Text(L("source_pick_mode"))) {
+            ForEach(Self.modes, id: \.0) { value, key in
+                Button(action: { settings.set(PK.sourcePickMode, value) }) {
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            let parts = L(key).split(separator: ":", maxSplits: 1).map { String($0).trimmingCharacters(in: .whitespaces) }
+                            Text(parts.first ?? "").foregroundColor(.primary)
+                            if parts.count > 1 { Text(parts[1]).font(.caption).foregroundColor(.secondary) }
+                        }
+                        Spacer()
+                        if (settings.get(PK.sourcePickMode) ?? "AUTO") == value {
+                            Image(systemName: "checkmark").foregroundColor(.accentColor).font(.body.weight(.semibold))
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+        }
+    }
+}
+
+/// «YouTube Music»: вход в Google-аккаунт на iOS не сделан (владелец решил, что пока не нужен) — объясняем, что тут
+/// было бы, и ведём в предложку, чтобы попросить.
+struct YouTubeMusicInfoScreen: View {
+    var body: some View {
+        List { ThemedRows {
+            Section(footer: Text(L("ios_ytm_info_footer"))) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Image(systemName: "play.rectangle.fill").font(.system(size: 34)).foregroundColor(.red)
+                    Text(L("ios_ytm_info_title")).font(.headline)
+                    Text(L("ios_ytm_info_body")).font(.subheadline).foregroundColor(.secondary)
+                }
+                .padding(.vertical, 6)
+            }
+            Section {
+                NavigationLink(destination: SuggestionsScreen()) {
+                    Label(L("ios_ytm_info_ask"), systemImage: "envelope")
+                }
+            }
+        }}
+        .themedList()
+        .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
+        .navigationTitle("YouTube Music")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

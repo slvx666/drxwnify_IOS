@@ -39,6 +39,16 @@ enum AppTheme: String, CaseIterable, Identifiable {
 
     var accent: Color? { palette.map { Color(UIColor(hex: $0.accent)) } }
     /// Фон строк простых списков: на iOS 16+ ячейки иначе системно-чёрные при цветном фоне темы.
+    /// Карточки сгруппированных списков (настройки): чуть светлее фона, как карточки Android (bg → surface на 30 %).
+    static var cardBackground: Color? {
+        guard let p = current.palette else { return nil }
+        func mix(_ shift: Int) -> CGFloat {
+            let a = CGFloat((p.background >> shift) & 0xFF), b = CGFloat((p.surface >> shift) & 0xFF)
+            return (a + (b - a) * 0.3) / 255
+        }
+        return Color(red: Double(mix(16)), green: Double(mix(8)), blue: Double(mix(0)))
+    }
+
     static var rowBackground: Color { current.palette.map { Color(UIColor(hex: $0.background)) } ?? Color(.systemBackground) }
 
     /// Цвета UIKit-основы (списки, панели, навигация) — на них стоят экраны SwiftUI на iOS 14–25.
@@ -109,4 +119,68 @@ struct ThemedRoot: ViewModifier {
 extension View {
     /// Строка простого списка в цвет фона темы.
     func themedRow() -> some View { listRowBackground(AppTheme.rowBackground) }
+}
+
+/// Строки сгруппированного списка в цвете карточек темы. На iOS 16+ списки сделаны на UICollectionView,
+/// и `UITableViewCell.appearance()` их не красит — без этого настройки оставались системно-серыми при цветной теме.
+struct ThemedRows<Content: View>: View {
+    let content: Content
+    init(@ViewBuilder content: () -> Content) { self.content = content() }
+
+    var body: some View {
+        Group { content }.listRowBackground(AppTheme.cardBackground)
+    }
+}
+
+/// Фон сгруппированного списка — фон темы (iOS 16+; раньше его красил `UITableView.appearance()`).
+struct ThemedListBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 16.0, *), let p = AppTheme.current.palette {
+            content.scrollContentBackground(.hidden).background(Color(UIColor(hex: p.background)).ignoresSafeArea())
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    func themedList() -> some View { modifier(ThemedListBackground()) }
+}
+
+/// Цвет библиотеки (выбранные фишки, закрепления, годы) — цвет основного аккаунта в оттенке темы,
+/// как `libraryAccent()` / `ServiceColors.themed` на Android: Spotify зелёный, Яндекс жёлтый, ВК синий; без аккаунта — акцент темы.
+enum LibraryAccent {
+    static func color(_ source: CatalogSource? = MainAccount.shared.main) -> Color {
+        guard let s = source else { return .accentColor }
+        let hex: UInt32
+        switch (AppTheme.current, s) {
+        case (.standard, .SPOTIFY): hex = 0x1ED760
+        case (.standard, .YANDEX): hex = 0xFFCC00
+        case (.standard, .VK): hex = 0x2787F5
+        case (.gruvbox, .SPOTIFY): hex = 0xB8BB26
+        case (.gruvbox, .YANDEX): hex = 0xFABD2F
+        case (.gruvbox, .VK): hex = 0x83A598
+        case (.catppuccin, .SPOTIFY): hex = 0xA6E3A1
+        case (.catppuccin, .YANDEX): hex = 0xF9E2AF
+        case (.catppuccin, .VK): hex = 0x89B4FA
+        case (.synthwave, .SPOTIFY): hex = 0x72F1B8
+        case (.synthwave, .YANDEX): hex = 0xFEDE5D
+        case (.synthwave, .VK): hex = 0x36F9F6
+        case (.sakura, .SPOTIFY): hex = 0x9CCB9A
+        case (.sakura, .YANDEX): hex = 0xE8C77A
+        case (.sakura, .VK): hex = 0x9DB8E0
+        case (.linux, .SPOTIFY): hex = 0x8AE234
+        case (.linux, .YANDEX): hex = 0xFCE94F
+        case (.linux, .VK): hex = 0x729FCF
+        }
+        return Color(UIColor(hex: hex))
+    }
+
+    /// Текст поверх цвета: чёрный на светлом, белый на тёмном.
+    static func onColor(_ source: CatalogSource? = MainAccount.shared.main) -> Color {
+        guard source != nil else { return Color(.systemBackground) }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color(source)).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.45 ? .black : .white
+    }
 }

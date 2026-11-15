@@ -37,10 +37,18 @@ struct MiniPlayerView: View {
         }
     }
 
-    private var fraction: CGFloat {
-        guard player.duration > 0 else { return 0 }
-        let f: Double = player.position / player.duration
-        return CGFloat(min(1.0, max(0.0, f)))
+    /// Кольцо прогресса: перерисовывается только оно (позиция — в `PlaybackClock`).
+    private struct ProgressRing: View {
+        @ObservedObject var clock: PlaybackClock
+        let duration: Double
+        let side: CGFloat
+
+        var body: some View {
+            Circle().trim(from: 0, to: duration > 0 ? CGFloat(min(1, max(0, clock.position / duration))) : 0)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: side, height: side)
+        }
     }
 
     /// Как на Android: круглая обложка с кольцом прогресса, по центру — пауза/играть.
@@ -52,10 +60,7 @@ struct MiniPlayerView: View {
                 ArtworkView(url: player.current?.artworkUrl, size: inner, circle: true)
                 Circle().fill(Color.black.opacity(0.35)).frame(width: inner, height: inner)
                 Circle().stroke(Color.secondary.opacity(0.3), lineWidth: 2.5).frame(width: side, height: side)
-                Circle().trim(from: 0, to: fraction)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: side, height: side)
+                ProgressRing(clock: player.clock, duration: player.duration, side: side)
                 if player.isLoading {
                     ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .white))
                 } else {

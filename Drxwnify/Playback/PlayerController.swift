@@ -15,7 +15,10 @@ final class PlayerController: NSObject, ObservableObject {
     @Published private(set) var isPlaying = false
     /// Ищется звук или идёт буферизация.
     @Published private(set) var isLoading = false
-    @Published private(set) var position: Double = 0
+    /// Позиция без @Published: она меняется дважды в секунду, и все экраны, подписанные на плеер, перерисовывались
+    /// вместе с кнопками шапки — нажатие терялось («срабатывает со второго-третьего раза»). Следят за ней через `clock`.
+    private(set) var position: Double = 0 { didSet { if clock.position != position { clock.position = position } } }
+    let clock = PlaybackClock()
     @Published private(set) var duration: Double = 0
     @Published private(set) var repeatMode: RepeatMode = .off
     @Published private(set) var shuffle = false
@@ -1089,4 +1092,9 @@ enum PlaybackTrouble {
         }
         return error.localizedDescription
     }
+}
+
+/// Позиция воспроизведения для ползунка и кольца прогресса (отдельно от плеера, см. `PlayerController.position`).
+final class PlaybackClock: ObservableObject {
+    @Published var position: Double = 0
 }

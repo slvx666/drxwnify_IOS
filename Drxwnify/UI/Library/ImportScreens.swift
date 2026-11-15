@@ -15,7 +15,7 @@ struct ImportPlaylistScreen: View {
     }
 
     var body: some View {
-        Form {
+        Form { ThemedRows {
             if importer.running || importer.total > 0 {
                 ImportProgressSection()
             }
@@ -49,7 +49,9 @@ struct ImportPlaylistScreen: View {
             Section(header: Text(L("import_help"))) {
                 Text(L("import_help_body")).font(.caption).foregroundColor(.secondary)
             }
-        }
+        }}
+        .themedList()
+        .listMiniPlayerSpace()
         .navigationTitle(L("import_playlist"))
     }
 
@@ -115,7 +117,7 @@ struct SoundCloudImportScreen: View {
     private static let likesKey = "\u{1}likes"
 
     var body: some View {
-        Form {
+        Form { ThemedRows {
             if importer.running || importer.total > 0 {
                 ImportProgressSection()
             }
@@ -154,7 +156,9 @@ struct SoundCloudImportScreen: View {
                     }
                 }
             }
-        }
+        }}
+        .themedList()
+        .listMiniPlayerSpace()
         .navigationTitle(L("soundcloud_import"))
     }
 

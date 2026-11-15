@@ -39,7 +39,8 @@ final class TogetherNav: ObservableObject {
 /// Вкладки «Вместе», как на Android: Чаты, Друзья, Слушать вместе; листаются свайпом.
 private struct TogetherTabs: View {
     @EnvironmentObject private var chats: ChatHub
-    @State private var page = 1
+    /// Первой открывается вкладка «Чаты» (первая по порядку, как на Android).
+    @State private var page = 0
     @StateObject private var nav = TogetherNav()
 
     var body: some View {
@@ -91,11 +92,7 @@ private struct ChatsListView: View {
         List {
             ForEach(chats.previews) { p in
                 Button(action: { nav.chat = p.last.peer }) {
-                    HStack {
-                        ChatPreviewRow(preview: p)
-                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundColor(.secondary)
-                    }
-                    .contentShape(Rectangle())
+                    ChatPreviewRow(preview: p).contentShape(Rectangle())
                 }
                 .buttonStyle(PlainButtonStyle())
                 .themedRow()
@@ -122,7 +119,7 @@ private struct ListenTogetherTab: View {
     }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             if let id = friends.listeningTo {
                 Section {
                     Button(action: friends.stopListenAlong) {
@@ -154,7 +151,8 @@ private struct ListenTogetherTab: View {
                 }
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
     }
 }
@@ -188,7 +186,7 @@ private struct CreateProfileView: View {
     @State private var error: String?
 
     var body: some View {
-        Form {
+        Form { ThemedRows {
             Section(header: Text(L("ios_friends_create")), footer: Text(L("ios_friends_create_hint"))) {
                 TextField(L("ios_friends_name"), text: $name)
                 Button(L("ios_friends_create_action")) { friends.createProfile(name: name) }
@@ -201,7 +199,8 @@ private struct CreateProfileView: View {
                 }
                 .disabled(nsec.isEmpty)
             }
-        }
+        }}
+        .themedList()
     }
 }
 
@@ -228,7 +227,7 @@ private struct FriendsListView: View {
     }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             if let me = friends.profile {
                 Section {
                     Button(action: { nav.profile = true }) {
@@ -302,7 +301,8 @@ private struct FriendsListView: View {
                 }
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .sheet(isPresented: $showAdd) { AddFriendSheet().environmentObject(friends) }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { _ in clock = FriendsHub.nowMs() }
@@ -353,18 +353,42 @@ private struct ChatPreviewRow: View {
         let d = friends.data[peer]
         let name = d?.name ?? friends.friends.first { $0.pubkey == peer }?.name ?? String(peer.prefix(8))
         HStack(spacing: 12) {
-            FriendAvatar(name: name, avatar: d?.avatar)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name).lineLimit(1)
+            FriendAvatar(name: name, avatar: d?.avatar, size: 50)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(name).font(.body.weight(.semibold)).lineLimit(1)
                 Text(chats.isTyping(peer) ? L("ios_typing") : previewText)
-                    .font(.caption).foregroundColor(chats.isTyping(peer) ? .accentColor : .secondary).lineLimit(1)
+                    .font(.subheadline).foregroundColor(chats.isTyping(peer) ? .accentColor : .secondary).lineLimit(1)
             }
-            Spacer()
-            if preview.unread > 0 {
-                Text("\(preview.unread)").font(.caption2.weight(.bold)).foregroundColor(.white)
-                    .padding(.horizontal, 7).padding(.vertical, 3).background(Capsule().fill(Color.accentColor))
+            Spacer(minLength: 6)
+            // Справа, как на Android и в Telegram: галочки и время, под ними — непрочитанные.
+            VStack(alignment: .trailing, spacing: 5) {
+                HStack(spacing: 3) {
+                    if preview.last.mine {
+                        Image(systemName: preview.last.read ? "checkmark.circle.fill" : "checkmark").font(.caption2).foregroundColor(.accentColor)
+                    }
+                    Text(when(preview.last.ts)).font(.caption).foregroundColor(.secondary)
+                }
+                if preview.unread > 0 {
+                    Text("\(preview.unread)").font(.caption2.weight(.bold)).foregroundColor(Color(.systemBackground))
+                        .padding(.horizontal, 7).padding(.vertical, 3).background(Capsule().fill(Color.accentColor))
+                } else {
+                    Text(" ").font(.caption2).padding(.vertical, 3)
+                }
             }
         }
+        .padding(.vertical, 2)
+    }
+
+    /// Сегодня — время, на этой неделе — день недели, раньше — дата.
+    private func when(_ ms: Int64) -> String {
+        let d = Date(timeIntervalSince1970: Double(ms) / 1000)
+        let cal = Calendar.current
+        let f = DateFormatter()
+        f.locale = Locale(identifier: AppLanguage.current)
+        if cal.isDateInToday(d) { f.dateFormat = "HH:mm" }
+        else if let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: Date())).day, days < 7 { f.dateFormat = "EE" }
+        else { f.dateFormat = "dd.MM.yy" }
+        return f.string(from: d)
     }
 
     private var previewText: String {
@@ -386,7 +410,7 @@ private struct AddFriendSheet: View {
 
     var body: some View {
         NavigationView {
-            Form {
+            Form { ThemedRows {
                 Section(header: Text(L("ios_friends_by_code")), footer: Text(error ?? L("ios_friends_by_code_hint")).foregroundColor(error == nil ? .secondary : .red)) {
                     TextField("npub1… / https://drxwnify.pages.dev/add/…", text: $code).autocapitalization(.none).disableAutocorrection(true)
                     Button(L("ios_friends_add")) {
@@ -418,7 +442,8 @@ private struct AddFriendSheet: View {
                         }
                     }
                 }
-            }
+            }}
+            .themedList()
             .navigationTitle(L("ios_friends_add"))
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarItems(leading: Button(L("close")) { presentation.wrappedValue.dismiss() })
@@ -471,7 +496,7 @@ struct MyProfileScreen: View {
     }
 
     var body: some View {
-        Form {
+        Form { ThemedRows {
             if let me = friends.profile {
                 Section {
                     HStack {
@@ -507,7 +532,8 @@ struct MyProfileScreen: View {
                     Button(L("ios_friends_copy_key")) { UIPasteboard.general.string = key }
                 }
             }
-        }
+        }}
+        .themedList()
         .navigationTitle(L("ios_friends_my_profile"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { name = friends.profile?.name ?? "" }

@@ -286,34 +286,75 @@ private struct HistoryContent: View {
         return order.map { ($0, map[$0] ?? []) }
     }
 
+    @State private var searching = false
+    @EnvironmentObject private var player: PlayerController
+
     var body: some View {
         List {
-            if !entries.isEmpty {
+            if searching {
                 LibrarySearchField(text: $query)
-                TrackPlayShuffleRow(tracks: shown.map { $0.track }, queueTitle: L("history"))
+            } else {
+                // Android: фишка источника истории; на iOS есть только локальная.
+                Text(L("ios_history_local"))
+                    .font(.subheadline.weight(.medium))
+                    .padding(.horizontal, 14).frame(height: 32)
+                    .background(Capsule().fill(Color.secondary.opacity(0.22)))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparatorHiddenCompat()
             }
             ForEach(groups, id: \.0) { title, items in
-                Section(header: Text(title)) {
-                    ForEach(items) { e in
-                        TrackRow(track: e.track, context: items.map { $0.track }, index: items.firstIndex(of: e) ?? 0, queueTitle: L("history"),
-                                 removeTitle: L("remove_from_history"), onRemove: { library.removeHistory(e.id) })
-                    }
-                    .onDelete { offsets in
-                        for i in offsets where items.indices.contains(i) { library.removeHistory(items[i].id) }
-                    }
+                // Заголовок дня крупно цветом акцента, как на Android, — строкой списка, а не серой плашкой раздела.
+                Text(title).font(.title2.weight(.bold)).foregroundColor(.accentColor)
+                    .padding(.top, 6)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparatorHiddenCompat()
+                ForEach(items) { e in
+                    TrackRow(track: e.track, context: items.map { $0.track }, index: items.firstIndex(of: e) ?? 0, queueTitle: L("history"),
+                             removeTitle: L("remove_from_history"), onRemove: { library.removeHistory(e.id) })
+                        .listRowSeparatorHiddenCompat()
+                }
+                .onDelete { offsets in
+                    for i in offsets where items.indices.contains(i) { library.removeHistory(items[i].id) }
                 }
             }
             if entries.isEmpty {
                 Text(L("ios_history_empty")).foregroundColor(.secondary).listRowBackground(Color.clear)
+            } else if shown.isEmpty {
+                Text(L("no_results_found")).foregroundColor(.secondary).listRowBackground(Color.clear)
             }
-            Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
+            Color.clear.frame(height: 60).listRowBackground(Color.clear).listRowSeparatorHiddenCompat().miniPlayerInset()
         }
         .listStyle(PlainListStyle())
+        .overlay(shuffleButton, alignment: .bottomTrailing)
         .navigationTitle(L("history"))
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarItems(trailing: Button(action: {
+            withAnimation(.easeOut(duration: 0.2)) { searching.toggle() }
+            if !searching { query = "" }
+        }) {
+            Image(systemName: searching ? "xmark" : "magnifyingglass").barHit()
+        }
+        .accessibilityLabel(L("search")))
         .hidesTabChrome()
         .onAppear(perform: reload)
         .onChange(of: library.revision) { _ in reload() }
+    }
+
+    /// «Перемешать» плавающей кнопкой справа внизу (Android FAB).
+    @ViewBuilder private var shuffleButton: some View {
+        if !shown.isEmpty {
+            Button(action: { player.play(shown.map { $0.track }, title: L("history"), shuffled: true) }) {
+                Image(systemName: "shuffle").font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(Color(.systemBackground))
+                    .frame(width: 56, height: 56)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.accentColor))
+                    .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+            }
+            .accessibilityLabel(L("shuffle"))
+            .padding(.trailing, 16)
+            // Над мини-плеером (панель вкладок здесь спрятана).
+            .padding(.bottom, MiniPlayerView.classicHeight + 20)
+        }
     }
 
     private func reload() {

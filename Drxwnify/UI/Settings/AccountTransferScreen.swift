@@ -305,7 +305,7 @@ struct AccountTransferScreen: View {
     }
 
     private func progressView(_ p: AccountTransfer.Progress) -> some View {
-        List {
+        List { ThemedRows {
             Section {
                 Text(L(p.finished ? "transfer_done" : "transfer_running", p.done, p.total)).font(.headline)
                 ProgressView(value: p.total > 0 ? Double(p.done) / Double(p.total) : 0)
@@ -319,8 +319,10 @@ struct AccountTransferScreen: View {
             if p.finished {
                 Button(L("transfer_again")) { transfer.clear() }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
     }
 
     private func start() {

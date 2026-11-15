@@ -236,7 +236,24 @@ struct MiniPlayerInset: ViewModifier {
     }
 }
 
+/// Отступ списка под мини-плеер через safe area (iOS 15+): фон списка остаётся сплошным до низа,
+/// а последние пункты прокручиваются выше мини-плеера. Раньше отступ у всего списка оставлял чёрную полосу.
+struct ListMiniPlayerSpace: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content
+        } else if #available(iOS 15.0, *) {
+            content.safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: MiniPlayerView.classicHeight + 8 + CapsuleTabBar.height)
+            }
+        } else {
+            content
+        }
+    }
+}
+
 extension View {
+    func listMiniPlayerSpace() -> some View { modifier(ListMiniPlayerSpace()) }
     func miniPlayerInset() -> some View { modifier(MiniPlayerInset()) }
     /// Прячет нижнюю панель, пока экран открыт (детали, «Вместе», чат).
     func hidesTabChrome() -> some View { modifier(HidesTabChrome()) }
@@ -442,17 +459,18 @@ struct TopBarIcons: View {
     @State private var localTogether = false
 
     var body: some View {
-        HStack(spacing: UIMetrics.isNarrow ? 12 : 16) {
-            NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath") }
+        HStack(spacing: UIMetrics.isNarrow ? 2 : 6) {
+            NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath").barHit() }
                 .accessibility(label: Text(L("history")))
             NavigationLink(destination: TogetherScreen(), isActive: together ?? $localTogether) {
                 Image(systemName: "person.2")
                     .overlay(badge, alignment: .topTrailing)
+                    .barHit()
             }
             .accessibility(label: Text(L("together")))
-            NavigationLink(destination: IntegrationsScreen(settings: env.prefs.settings)) { Image(systemName: "puzzlepiece") }
+            NavigationLink(destination: IntegrationsScreen(settings: env.prefs.settings)) { Image(systemName: "puzzlepiece").barHit() }
                 .accessibility(label: Text(L("integrations")))
-            NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape") }
+            NavigationLink(destination: SettingsScreen()) { Image(systemName: "gearshape").barHit() }
                 .accessibility(label: Text(L("settings")))
         }
         .font(.system(size: 17, weight: .regular))
@@ -517,6 +535,11 @@ struct RootTitleBar<Trailing: View>: ViewModifier {
 }
 
 extension View {
+    /// Кнопка панели: зона нажатия 36×36 вокруг значка (раньше — только сам значок).
+    func barHit() -> some View {
+        frame(minWidth: 36, minHeight: 36).contentShape(Rectangle())
+    }
+
     func rootTitle<T: View>(_ title: String, @ViewBuilder trailing: () -> T) -> some View {
         modifier(RootTitleBar(title: title, trailing: trailing()))
     }

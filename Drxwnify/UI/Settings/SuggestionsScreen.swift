@@ -11,7 +11,7 @@ struct SuggestionsScreen: View {
     private var hint: String { L("suggest_hint_" + topic.rawValue) }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section {
                 Text(L("suggest_intro")).font(.subheadline)
                 Picker("", selection: $topic) {
@@ -32,8 +32,10 @@ struct SuggestionsScreen: View {
                 }
             }
             Section(footer: Text(L("suggest_privacy"))) { EmptyView() }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .navigationTitle(L("suggest_title"))
         .navigationBarTitleDisplayMode(.inline)
         .alert(isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {

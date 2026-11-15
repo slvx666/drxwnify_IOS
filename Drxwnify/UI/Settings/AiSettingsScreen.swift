@@ -11,7 +11,7 @@ struct AiSettingsScreen: View {
     private var provider: String { settings.get(PK.aiProvider) ?? "OpenRouter" }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("ai_provider")), footer: helpFooter) {
                 Picker(L("ai_provider"), selection: Binding(get: { provider }, set: { p in
                     settings.set(PK.aiProvider, p)
@@ -67,7 +67,8 @@ struct AiSettingsScreen: View {
                 }
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("ai_lyrics_translation"))
         .navigationBarTitleDisplayMode(.inline)

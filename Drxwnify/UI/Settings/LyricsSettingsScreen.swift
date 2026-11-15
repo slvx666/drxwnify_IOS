@@ -6,7 +6,7 @@ struct LyricsSettingsScreen: View {
     @State private var order: [String] = []
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("lyrics_provider_selection")), footer: Text(L("lyrics_provider_selection_desc"))) {
                 ForEach(LyricsProviders.all, id: \.self) { name in
                     Toggle(name, isOn: Binding(
@@ -30,8 +30,10 @@ struct LyricsSettingsScreen: View {
                 RomanizeToggle(lang: "cyrillic", title: L("lyrics_romanization_cyrillic"))
                 PrefToggle(title: L("lyrics_romanize_as_main"), key: PK.lyricsRomanizeAsMain, defaultValue: false, settings: settings)
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .environment(\.editMode, .constant(.active))
         .navigationTitle(L("lyrics"))
         .navigationBarTitleDisplayMode(.inline)

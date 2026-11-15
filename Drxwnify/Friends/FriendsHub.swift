@@ -106,6 +106,8 @@ final class FriendsHub: ObservableObject {
         var playlists: [SharedPlaylist]?
         var stats: Stats?
         var likes: SharedLikes?
+        /// Музыкальный портрет (жанры, топы за неделю/месяц/год) — поле `portrait`, как на Android.
+        var portrait: ProfilePortrait?
         var stamps: [String: Int64] = [:]
     }
 
@@ -154,6 +156,10 @@ final class FriendsHub: ObservableObject {
     @Published private(set) var listeningTo: String?
     @Published private(set) var verified: Set<String> = []
     @Published private(set) var pinned: [String] = []
+    /// Свой портрет, как собран последний раз (виден в своём профиле сразу).
+    @Published private(set) var myPortrait: ProfilePortrait?
+    private var portraitBuilding = false
+    private static let portraitRefreshMs: Int64 = 20 * 3600 * 1000
     /// Ссылка-приглашение, открытая снаружи: ждёт ответа «добавить / нет».
     @Published var invite: (pubkey: String, name: String)?
 
@@ -179,6 +185,9 @@ final class FriendsHub: ObservableObject {
         store = prefs.shared("friends")
         self.database = database
         load()
+        myPortrait = store.string("portraitPacked").flatMap(PortraitCodec.unpack)
+        // Портрет пересобирается раз в сутки, через минуту после запуска (как на Android).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.refreshPortrait() }
         // NIP-42: релеи, требующие входа, получают подпись ключом профиля.
         RelayPool.shared.authKey = { [weak self] in self?.secretKey }
     }
@@ -539,7 +548,7 @@ final class FriendsHub: ObservableObject {
         case Self.fPlaylists: current.playlists = (json?.arr("playlists") as? [JSONObject]).map(Self.playlists(from:))
         case Self.fStats: current.stats = json.map(Self.stats(from:))
         case Self.fLikes: current.likes = content.isEmpty ? nil : Self.unpackLikes(content)
-        case Self.fPortrait: break
+        case Self.fPortrait: current.portrait = content.isEmpty ? nil : PortraitCodec.unpack(content)
         default: return
         }
         data[author] = current
@@ -728,8 +737,33 @@ final class FriendsHub: ObservableObject {
                 return ["min": Int(total / 60000), "plays": row?["n"] as Int? ?? 0, "liked": liked, "top": top]
             }
             if let s = stats { publishField(Self.fStats, JSON.string(s), p.stats, onlyFor: onlyFor) }
+            if let packed = store.string("portraitPacked") { publishField(Self.fPortrait, packed, p.stats, onlyFor: onlyFor) }
         }
+        if onlyFor == nil { refreshPortrait() }
         if onlyFor == nil { store.setLong(Int(Self.nowMs()), for: "libraryAt") }
+    }
+
+    /// Собирает свой портрет (не чаще раза в 20 ч, сразу — если сменилась версия подсчёта) и отправляет друзьям.
+    func refreshPortrait(force: Bool = false) {
+        guard !portraitBuilding else { return }
+        let fresh = (store.int("portraitVersion") ?? 0) == PortraitBuilder.version
+            && Self.nowMs() - Int64(store.int("portraitAt") ?? 0) < Self.portraitRefreshMs
+        if !force && fresh && myPortrait != nil { return }
+        portraitBuilding = true
+        let db = database
+        Task { [weak self] in
+            let portrait = await PortraitBuilder.build(database: db)
+            let packed = PortraitCodec.pack(portrait)
+            await MainActor.run {
+                guard let self = self else { return }
+                self.portraitBuilding = false
+                self.store.setString(packed, for: "portraitPacked")
+                self.store.setLong(Int(Self.nowMs()), for: "portraitAt")
+                self.store.setLong(PortraitBuilder.version, for: "portraitVersion")
+                self.myPortrait = portrait
+                if self.secretKey != nil, self.privacy.stats != .NOBODY { self.publishField(Self.fPortrait, packed, self.privacy.stats) }
+            }
+        }
     }
 
     /// «Как меня видят» (Android 1.5.1): то, что получает зритель, которому открыты поля с рангом ≥ `minRank`
@@ -741,6 +775,7 @@ final class FriendsHub: ObservableObject {
         let p = privacy
         func open(_ a: Audience) -> Bool { a != .NOBODY && a.rank >= minRank }
         if open(p.nowPlaying) { d.now = lastNow }
+        if open(p.stats) { d.portrait = myPortrait }
         try? database.pool.read { db in
             if open(p.history) {
                 d.history = try Self.refs(db, sql: """

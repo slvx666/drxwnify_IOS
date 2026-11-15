@@ -199,3 +199,9 @@
 "ios_stats_year" = "Year";
 "ios_video_saved_photos" = "Video saved to Photos";
 "ios_photos_denied" = "No access to Photos: allow adding in iOS Settings";
+"ios_ytm_info_title" = "YouTube Music sign-in is not here yet";
+"ios_ytm_info_body" = "This is where a Google account sign-in would go: likes, playlists and subscriptions from YouTube Music would come into the app, and likes would go back. YouTube audio plays without signing in.";
+"ios_ytm_info_footer" = "If you need it, write to Suggestions and it will be made.";
+"ios_ytm_info_ask" = "Ask in Suggestions";
+"ios_history_local" = "Local";
+"ios_scroll_down" = "Scroll down";

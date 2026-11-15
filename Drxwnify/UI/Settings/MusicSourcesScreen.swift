@@ -64,7 +64,7 @@ private struct MusicSourcesContent: View {
     }
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(header: Text(L("audio_sources_title")), footer: Text(L(allDisabled ? "audio_sources_all_disabled" : "audio_sources_info"))) {
                 ForEach(order, id: \.self) { id in
                     Toggle(isOn: Binding(get: { settings.get(key(id)) ?? true }, set: { settings.set(key(id), $0) })) {
@@ -100,11 +100,12 @@ private struct MusicSourcesContent: View {
                     }
                 }
             }
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
+        .listMiniPlayerSpace()
         .environment(\.editMode, .constant(.active))
         .navigationTitle(L("music_sources"))
         .navigationBarTitleDisplayMode(.inline)
-        .miniPlayerInset()
     }
 }

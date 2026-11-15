@@ -9,7 +9,6 @@ struct ChatScreen: View {
 
     @State private var messages: [ChatMessage] = []
     @State private var lines: [ChatLine] = []
-    @State private var acting: ChatMessage?
     @State private var reactions: [String: [ChatReaction]] = [:]
     @State private var text = ""
     @State private var replyTo: ChatMessage?
@@ -18,6 +17,14 @@ struct ChatScreen: View {
     @State private var showStickers = false
     @State private var showMusic = false
     @State private var forwarding: ChatMessage?
+    /// Меню сообщения поверх чата, как в Telegram: реакции сверху, сообщение, действия.
+    @State private var menuFor: ChatMessage?
+    @State private var allReactions = false
+    @State private var reactionQuery = ""
+    /// Насколько отлистано от низа (pt): кнопка «вниз» появляется дальше ~1,5 экрана.
+    @State private var fromBottom: CGFloat = 0
+    /// Низ ленты (несколько последних строк) на экране: пока виден — кнопки «вниз» нет.
+    @State private var bottomVisible = true
     @EnvironmentObject private var env: AppEnvironment
 
     private static let quickReactions = ["❤️", "🔥", "😂", "👍", "😮", "😢"]
@@ -26,51 +33,56 @@ struct ChatScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Лента перевёрнута: новое — у нижнего края сразу, без прокрутки при открытии (раньше чат пролистывался
+            // сверху вниз за несколько кадров). Каждая строка переворачивается обратно.
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 6) {
-                        ForEach(lines) { line in
-                            if let day = line.day {
-                                Text(day).font(.caption.weight(.medium)).foregroundColor(.secondary)
-                                    .padding(.horizontal, 10).padding(.vertical, 4)
-                                    .background(Capsule().fill(Color.secondary.opacity(0.18)))
-                                    .padding(.vertical, 6)
-                            } else if line.batch.count > 1 {
-                                batchBubble(line.batch).id(line.id)
-                            } else if let m = line.batch.first {
-                                bubble(m).id(m.id)
-                            }
-                        }
+                        Color.clear.frame(height: 1).id("chat-bottom")
+                        // Метка примерно в полэкрана от низа: ушла с экрана — показать «вниз».
+                        Color.clear.frame(height: UIScreen.main.bounds.height * 0.5)
+                            .onAppear { bottomVisible = true }
+                            .onDisappear { bottomVisible = false }
+                            .padding(.bottom, -UIScreen.main.bounds.height * 0.5)
                         if chats.isTyping(peer) {
                             Text(L("ios_typing")).font(.caption).foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16)
+                                .flippedRow()
+                        }
+                        ForEach(lines.reversed()) { line in
+                            Group {
+                                if let day = line.day {
+                                    Text(day).font(.caption.weight(.medium)).foregroundColor(.secondary)
+                                        .padding(.horizontal, 10).padding(.vertical, 4)
+                                        .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                                        .padding(.vertical, 6)
+                                } else if line.batch.count > 1 {
+                                    batchBubble(line.batch)
+                                } else if let m = line.batch.first {
+                                    bubble(m)
+                                }
+                            }
+                            .flippedRow()
+                            .id(line.id)
                         }
                     }
                     .padding(.vertical, 10)
+                    .background(GeometryReader { g in
+                        Color.clear.preference(key: ChatOffsetKey.self, value: -g.frame(in: .named("chat")).minY)
+                    })
                 }
-                .onAppear { if let last = lines.last { proxy.scrollTo(last.id, anchor: .bottom) } }
-                .onChange(of: messages.count) { _ in
-                    if let last = lines.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
-                }
+                .coordinateSpace(name: "chat")
+                .flippedRow()
+                .onPreferenceChange(ChatOffsetKey.self) { fromBottom = $0 }
+                .overlay(scrollDownButton(proxy), alignment: .bottomTrailing)
             }
             inputBar
                 .padding(.bottom, miniPlayerGap)
         }
+        .overlay(menuOverlay)
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .hidesTabChrome()
-        .background(EmptyView().sheet(item: $acting) { m in
-            MessageActionsSheet(message: m, mine: m.mine, quick: Self.quickReactions,
-                                react: { chats.react(m, key: $0) },
-                                reply: { replyTo = m; editing = nil },
-                                copy: { UIPasteboard.general.string = m.text.isEmpty ? (m.card?.label ?? "") : Stickers.plain(m.text) },
-                                forward: { forwarding = m },
-                                edit: m.mine && !m.text.isEmpty ? { editing = m; replyTo = nil; text = m.text } : nil,
-                                retry: m.mine && m.state == ChatMessage.stateFailed ? { chats.retry(m) } : nil,
-                                deleteForBoth: m.mine ? { chats.delete(m, forBoth: true) } : nil,
-                                deleteForMe: { chats.delete(m, forBoth: false) })
-                .modifier(MediumSheet())
-        })
         .background(EmptyView().sheet(item: $forwarding) { m in
             ForwardSheet(message: m, from: peer).environmentObject(friends).environmentObject(chats)
         })
@@ -89,6 +101,153 @@ struct ChatScreen: View {
         .onChange(of: chats.revision) { _ in
             reload()
             chats.markRead(peer)
+        }
+    }
+
+    // MARK: - Меню сообщения как в Telegram
+
+    private func openMenu(_ m: ChatMessage) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        allReactions = false
+        reactionQuery = ""
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { menuFor = m }
+    }
+
+    private func closeMenu(then action: (() -> Void)? = nil) {
+        withAnimation(.easeOut(duration: 0.18)) { menuFor = nil }
+        if let a = action { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: a) }
+    }
+
+    /// Затемнение и размытие чата, над сообщением — реакции (раскрываются в сетку с поиском), под ним — действия.
+    @ViewBuilder private var menuOverlay: some View {
+        if let m = menuFor {
+            ZStack {
+                BlurView(style: .systemUltraThinMaterialDark).opacity(0.9)
+                    .overlay(Color.black.opacity(0.25))
+                    .ignoresSafeArea()
+                    .onTapGesture { closeMenu() }
+                VStack(alignment: m.mine ? .trailing : .leading, spacing: 10) {
+                    reactionPicker(m)
+                    if !allReactions {
+                        bubble(m).allowsHitTesting(false).padding(.horizontal, -10)
+                        actionsCard(m)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity, alignment: m.mine ? .trailing : .leading)
+            }
+            .transition(.opacity)
+            .zIndex(10)
+        }
+    }
+
+    private static let menuReactions = ["❤️", "👍", "🔥", "😂", "😢", "😮", "🤯"]
+
+    @ViewBuilder private func reactionPicker(_ m: ChatMessage) -> some View {
+        if allReactions {
+            VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass").foregroundColor(.secondary)
+                    TextField(L("chat_reactions_search"), text: $reactionQuery).disableAutocorrection(true)
+                }
+                .padding(.horizontal, 12).frame(height: 38)
+                .background(Capsule().fill(Color.secondary.opacity(0.2)))
+                ScrollView {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 6), spacing: 6) {
+                        ForEach(ReactionCatalog.search(reactionQuery), id: \.self) { e in
+                            Button(action: { closeMenu { chats.react(m, key: e) } }) {
+                                Text(e).font(.system(size: 30)).frame(height: 44)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                        }
+                    }
+                }
+                .frame(maxHeight: 300)
+            }
+            .padding(12)
+            .frame(width: min(340, UIMetrics.width - 28))
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(.secondarySystemBackground)))
+            .transition(.scale(scale: 0.9).combined(with: .opacity))
+        } else {
+            let mine = Set((reactions[m.id] ?? []).filter { $0.reactor == friends.profile?.pubkey }.flatMap { $0.keyList })
+            HStack(spacing: 2) {
+                ForEach(Self.menuReactions, id: \.self) { e in
+                    Button(action: { closeMenu { chats.react(m, key: e) } }) {
+                        Text(e).font(.system(size: 28)).frame(width: 40, height: 44)
+                            .background(Circle().fill(mine.contains(e) ? Color.accentColor.opacity(0.3) : Color.clear))
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+                Button(action: { withAnimation(.spring(response: 0.3)) { allReactions = true } }) {
+                    Image(systemName: "chevron.down").font(.system(size: 15, weight: .bold)).foregroundColor(.secondary)
+                        .frame(width: 34, height: 34).background(Circle().fill(Color.secondary.opacity(0.2)))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .padding(.trailing, 4)
+            }
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill(Color(.secondarySystemBackground)))
+        }
+    }
+
+    private func actionsCard(_ m: ChatMessage) -> some View {
+        VStack(spacing: 0) {
+            actionRow(L("ios_reply"), "arrowshape.turn.up.left") { replyTo = m; editing = nil }
+            if !m.text.isEmpty || m.card != nil {
+                actionRow(L("ios_copy"), "doc.on.doc") { UIPasteboard.general.string = m.text.isEmpty ? (m.card?.label ?? "") : Stickers.plain(m.text) }
+            }
+            actionRow(L("ios_forward"), "arrowshape.turn.up.right") { forwarding = m }
+            if m.mine && !m.text.isEmpty { actionRow(L("ios_edit"), "pencil") { editing = m; replyTo = nil; text = m.text } }
+            if m.mine && m.state == ChatMessage.stateFailed { actionRow(L("retry"), "arrow.clockwise") { chats.retry(m) } }
+            if m.mine { actionRow(L("ios_delete_for_both"), "trash", destructive: true) { chats.delete(m, forBoth: true) } }
+            actionRow(L("ios_delete_for_me"), "trash.slash", destructive: true) { chats.delete(m, forBoth: false) }
+        }
+        .frame(width: 250)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(.secondarySystemBackground)))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func actionRow(_ title: String, _ symbol: String, destructive: Bool = false, _ action: @escaping () -> Void) -> some View {
+        Button(action: { closeMenu(then: action) }) {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: symbol).font(.system(size: 16))
+            }
+            .foregroundColor(destructive ? .red : .primary)
+            .padding(.horizontal, 16).frame(height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .overlay(Rectangle().fill(Color.secondary.opacity(0.2)).frame(height: 0.5), alignment: .bottom)
+    }
+
+    /// «Вниз», как в Telegram: плавно появляется, когда отлистал вверх, и уходит у самого низа.
+    private func scrollDownButton(_ proxy: ScrollViewProxy) -> some View {
+        let show = !bottomVisible || fromBottom > UIScreen.main.bounds.height * 0.6
+        return Button(action: { withAnimation(.easeOut(duration: 0.3)) { proxy.scrollTo("chat-bottom", anchor: .top) } }) {
+            Image(systemName: "chevron.down").font(.system(size: 18, weight: .semibold)).foregroundColor(.primary)
+                .frame(width: 44, height: 44)
+                .background(BlurView(style: .systemThickMaterial).clipShape(Circle()))
+                .overlay(Circle().stroke(Color.secondary.opacity(0.25), lineWidth: 0.5))
+                .overlay(unreadBadge, alignment: .top)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .padding(.trailing, 14).padding(.bottom, 12)
+        .opacity(show ? 1 : 0)
+        .scaleEffect(show ? 1 : 0.6)
+        .animation(.easeOut(duration: 0.2), value: show)
+        .allowsHitTesting(show)
+        .accessibilityLabel(L("ios_scroll_down"))
+    }
+
+    @ViewBuilder private var unreadBadge: some View {
+        let n = chats.previews.first { $0.last.peer == peer }?.unread ?? 0
+        if n > 0 {
+            Text("\(n)").font(.caption2.weight(.bold)).foregroundColor(.white)
+                .padding(.horizontal, 5).frame(minWidth: 18, minHeight: 18)
+                .background(Capsule().fill(Color.accentColor)).offset(y: -9)
         }
     }
 
@@ -148,10 +307,7 @@ struct ChatScreen: View {
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { chats.react(m, key: MessagesSettingsScreen.quick(env.prefs.shared("chat"))) }
-            .onLongPressGesture(minimumDuration: 0.35) {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                acting = m
-            }
+            .onLongPressGesture(minimumDuration: 0.35) { openMenu(m) }
             .modifier(SwipeToReply { replyTo = m; editing = nil })
             if !m.mine { Spacer(minLength: 50) }
         }
@@ -201,10 +357,7 @@ struct ChatScreen: View {
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(m.mine ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.18)))
             .onTapGesture(count: 2) { chats.react(m, key: MessagesSettingsScreen.quick(env.prefs.shared("chat"))) }
-            .onLongPressGesture(minimumDuration: 0.35) {
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                acting = m
-            }
+            .onLongPressGesture(minimumDuration: 0.35) { openMenu(m) }
             .modifier(SwipeToReply { replyTo = m; editing = nil })
             if !m.mine { Spacer(minLength: 50) }
         }
@@ -220,7 +373,7 @@ struct ChatScreen: View {
                 ForEach(batch) { m in
                     if let c = m.card {
                         musicCard(c)
-                            .onLongPressGesture(minimumDuration: 0.35) { acting = m }
+                            .onLongPressGesture(minimumDuration: 0.35) { openMenu(m) }
                     }
                 }
                 HStack(spacing: 4) {
@@ -301,7 +454,11 @@ struct ChatScreen: View {
                     Image(systemName: editing != nil ? "pencil" : "arrowshape.turn.up.left").foregroundColor(.accentColor)
                     Text(r.text.isEmpty ? (r.card?.label ?? "") : Stickers.plain(r.text)).font(.caption).lineLimit(1)
                     Spacer()
-                    Button(action: { replyTo = nil; if editing != nil { editing = nil; text = "" } }) { Image(systemName: "xmark") }
+                    // Крестик с зоной нажатия 44×44 (раньше по нему было трудно попасть).
+                    Button(action: { replyTo = nil; if editing != nil { editing = nil; text = "" } }) {
+                        Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(BorderlessButtonStyle())
                 }
                 .padding(.horizontal, 12)
             }
@@ -412,4 +569,38 @@ final class KeyboardWatcher: ObservableObject {
     }
 
     deinit { tokens.forEach(NotificationCenter.default.removeObserver) }
+}
+
+/// Сколько отлистано от низа перевёрнутой ленты.
+private struct ChatOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+extension View {
+    /// Переворот по вертикали для ленты чата (без зеркала по горизонтали).
+    func flippedRow() -> some View { scaleEffect(x: 1, y: -1, anchor: .center) }
+}
+
+/// Реакции для сетки (Android: «Поиск реакций»): эмодзи и слова для поиска.
+enum ReactionCatalog {
+    static let all: [(String, String)] = [
+        ("❤️", "сердце любовь heart love"), ("👍", "лайк класс like thumbs up"), ("🔥", "огонь fire"), ("😂", "смех ржу laugh lol"),
+        ("😭", "плачу cry"), ("😍", "влюблён love eyes"), ("🤯", "взрыв мозг mind blown"), ("👎", "дизлайк dislike"),
+        ("😢", "грусть sad"), ("😮", "удивление wow"), ("😡", "злой angry"), ("🤔", "думаю think"),
+        ("👏", "хлоп аплодисменты clap"), ("🎉", "праздник party"), ("💯", "сто 100"), ("🙏", "спасибо пожалуйста pray thanks"),
+        ("👀", "глаза смотрю eyes"), ("😎", "круто cool"), ("🤣", "ору rofl"), ("😁", "улыбка grin"),
+        ("🤗", "обнимаю hug"), ("🤝", "рукопожатие deal handshake"), ("💔", "разбитое сердце broken heart"), ("😱", "ужас scream"),
+        ("🤮", "тошнит vomit"), ("🤡", "клоун clown"), ("💩", "какашка poop"), ("💀", "череп умер skull dead"),
+        ("🙈", "не вижу monkey"), ("😴", "сплю sleep"), ("😈", "дьявол devil"), ("🤬", "мат ругаюсь swear"),
+        ("🌚", "луна moon"), ("⚡", "молния lightning"), ("🏆", "кубок trophy"), ("🎵", "музыка нота music note"),
+        ("🎸", "гитара guitar"), ("🥁", "барабан drum"), ("🎧", "наушники headphones"), ("🤘", "рок metal rock"),
+        ("😇", "ангел angel"), ("🥰", "милота cute"), ("😏", "ухмылка smirk"), ("🙄", "закатил глаза eye roll"),
+        ("😬", "неловко awkward"), ("🥶", "холодно cold"), ("🥵", "жарко hot"), ("✨", "блёстки sparkles"),
+    ]
+
+    static func search(_ q: String) -> [String] {
+        let t = q.trimmingCharacters(in: .whitespaces).lowercased()
+        return all.filter { t.isEmpty || $0.1.contains(t) || $0.0 == t }.map { $0.0 }
+    }
 }

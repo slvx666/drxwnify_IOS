@@ -31,7 +31,7 @@ struct ServiceStatsScreen: View {
     @State private var story: Story?
 
     var body: some View {
-        List {
+        List { ThemedRows {
             if source == .SPOTIFY {
                 Picker("", selection: $range) {
                     ForEach(SpotifyAPI.TopRange.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -44,7 +44,8 @@ struct ServiceStatsScreen: View {
             if source == .SPOTIFY, let t = tops { spotify(t) }
             if source == .YANDEX, let y = yandex { yandexView(y) }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(source.title + " · " + L("service_stats_title"))
         .navigationBarTitleDisplayMode(.inline)
@@ -162,7 +163,7 @@ struct AppStatsScreen: View {
     private static var memory: [(Date, Int, Int)] = []
 
     var body: some View {
-        List {
+        List { ThemedRows {
             Section(footer: Text(L("app_stats_scope"))) {
                 if months.isEmpty {
                     ForEach(0..<3, id: \.self) { _ in
@@ -196,7 +197,8 @@ struct AppStatsScreen: View {
                 row(L("app_stats_friends"), "\(env.friends.friends.count)")
             }
             Color.clear.frame(height: 1).listRowBackground(Color.clear).miniPlayerInset()
-        }
+        }}
+        .themedList()
         .listStyle(InsetGroupedListStyle())
         .navigationTitle(L("service_stats_title"))
         .onAppear(perform: load)
