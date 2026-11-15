@@ -8,6 +8,7 @@ struct HomeScreen: View {
     @EnvironmentObject private var env: AppEnvironment
 
     var body: some View {
+        let _ = RenderCount.hit("homeScreen")
         HomeContent(settings: env.prefs.settings, feed: HomeFeed.shared, friends: env.friends)
             .rootTitle(L("home")) { TopBarIcons(together: $env.showTogether) }
     }
@@ -26,6 +27,7 @@ private struct HomeContent: View {
     private var data: HomeFeedData? { feed.feed }
 
     var body: some View {
+        let _ = RenderCount.hit("home")
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 20) {
                 sections

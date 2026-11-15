@@ -492,7 +492,7 @@ final class FriendsHub: ObservableObject {
         var filter: JSONObject = ["kinds": [Nostr.kindAppData], "authors": keys, "#d": dValues]
         if newestSeen > 0 && liveFriendKeys == Set(keys) { filter["since"] = newestSeen - 60 }
         liveFriendKeys = Set(keys)
-        liveSubs.append(relays.subscribe([filter]) { [weak self] in self?.onEvent($0) })
+        liveSubs.append(relays.subscribe([filter]) { [weak self] e in probeTime("friends.event", over: 8) { self?.onEvent(e) } })
         let toMe: JSONObject = ["kinds": [Nostr.kindAppData], "#p": [me], "since": Int64(Date().timeIntervalSince1970) - 60 * 24 * 3600]
         liveSubs.append(relays.subscribe([toMe]) { [weak self] in self?.onEvent($0) })
     }

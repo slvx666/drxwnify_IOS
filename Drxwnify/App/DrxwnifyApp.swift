@@ -22,6 +22,16 @@ struct DrxwnifyApp: App {
                 .preferredColorScheme(.dark)
                 .onAppear {
                     BackgroundRefresh.chats = env.chats
+                    TouchProbe.install()
+                    ChangeWatch.watch("env", env.objectWillChange)
+                    ChangeWatch.watch("player", env.player.objectWillChange)
+                    ChangeWatch.watch("friends", env.friends.objectWillChange)
+                    ChangeWatch.watch("chats", env.chats.objectWillChange)
+                    ChangeWatch.watch("likes", env.likes.objectWillChange)
+                    ChangeWatch.watch("downloads", env.downloads.objectWillChange)
+                    ChangeWatch.watch("settings", env.prefs.settings.objectWillChange)
+                    ChangeWatch.watch("feed", HomeFeed.shared.objectWillChange)
+                    ChangeWatch.watch("suggestions", Suggestions.shared.objectWillChange)
                     env.chats.hold("foreground", true)
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in

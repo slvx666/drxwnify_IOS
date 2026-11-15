@@ -15,6 +15,7 @@ struct MiniPlayerView: View {
     @EnvironmentObject private var downloads: DownloadManager
 
     var body: some View {
+        let _ = RenderCount.hit("mini")
         if player.current == nil {
             if style == .accessory {
                 Text(L("mini_player_nothing")).font(.subheadline).foregroundColor(.secondary)

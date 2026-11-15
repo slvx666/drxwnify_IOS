@@ -17,7 +17,8 @@ struct RootView: View {
     }()
     @State private var showPlayer = false
     @EnvironmentObject private var env: AppEnvironment
-    @EnvironmentObject private var player: PlayerController
+    /// Плеер без подписки: корень не должен перерисовываться (а с ним всё приложение) на каждое изменение плеера.
+    private var player: PlayerController { env.player }
     @ObservedObject private var suggestions = Suggestions.shared
     @State private var monthStory: Story?
 
@@ -41,9 +42,10 @@ struct RootView: View {
     static let classicTabBarHeight: CGFloat = 49
 
     var body: some View {
+        let _ = RenderCount.hit("root")
         content
             .onAppear {
-                env.currentTab = Self.name(tab)
+                ChromeState.shared.currentTab = Self.name(tab)
                 runDebugScreen()
                 offerMonthReview()
             }
@@ -57,7 +59,7 @@ struct RootView: View {
                     .preferredColorScheme(.dark)
                     .modifier(ThemedRoot(theme: AppTheme.current))
             })
-            .onChange(of: tab) { env.currentTab = Self.name($0) }
+            .onChange(of: tab) { ChromeState.shared.currentTab = Self.name($0) }
             .onChange(of: env.homeRequest) { _ in
                 showPlayer = false
                 tab = .home
@@ -125,21 +127,8 @@ struct RootView: View {
                 }
                 // Смена вкладки — плавное растворение, а не мгновенный скачок.
                 .animation(.easeInOut(duration: 0.22), value: tab)
-                VStack(spacing: 0) {
-                    if !env.chatOpen {
-                        MiniPlayerView(style: .classic, showPlayer: $showPlayer)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                    if !env.chromeHidden {
-                        CapsuleTabBar(tab: $tab)
-                            .padding(.top, 2)
-                            .transition(.move(edge: .bottom))
-                    }
-                }
-                .ignoresSafeArea(.keyboard, edges: .bottom)
+                BottomChrome(tab: $tab, showPlayer: $showPlayer)
             }
-            .animation(.easeInOut(duration: 0.25), value: env.chromeHidden)
-            .animation(.easeOut(duration: 0.2), value: env.chatOpen)
         }
     }
 
@@ -259,20 +248,14 @@ extension View {
     func hidesTabChrome() -> some View { modifier(HidesTabChrome()) }
 }
 
-/// iOS 26: системное скрытие панели вкладок. iOS 14–25: счётчик для своей панели, который меняется
-/// в `viewWillAppear` / `viewWillDisappear` — то есть в самом начале перехода, а не после него.
+/// iOS 26: системное скрытие панели вкладок. iOS 14–25: своя панель и так видна только на корне вкладки.
 struct HidesTabChrome: ViewModifier {
-    @EnvironmentObject private var env: AppEnvironment
-
     func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content.toolbar(.hidden, for: .tabBar)
-                .onAppear { env.chromeHiders += 1 }
-                .onDisappear { env.chromeHiders = max(0, env.chromeHiders - 1) }
         } else {
-            content.background(ChromeSignal(change: { delta in
-                env.chromeHiders = max(0, env.chromeHiders + delta)
-            }))
+            // iOS 14–25: своя панель видна только на корне вкладки (`ChromeState`), вложенный экран прячет её и так.
+            content
         }
     }
 }
@@ -284,13 +267,10 @@ extension View {
 
 struct TabRootSignal: ViewModifier {
     let name: String
-    @EnvironmentObject private var env: AppEnvironment
 
     func body(content: Content) -> some View {
         content
-            .background(ChromeSignal(change: { delta in
-                if delta > 0 { env.rootVisible.insert(name) } else { env.rootVisible.remove(name) }
-            }))
+            .background(TabRootMarker(name: name))
             // В поиске шапка стоит: жест «прятать при прокрутке» там мешает нажатиям по фишкам и строке поиска.
             .background(BarsOnSwipe(enabled: name != "search"))
     }
@@ -321,27 +301,66 @@ private struct BarsOnSwipe: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: Controller, context: Context) { controller.enabled = enabled }
 }
 
-private struct ChromeSignal: UIViewControllerRepresentable {
-    let change: (Int) -> Void
+/// Метка корня вкладки в UIKit: по ней `ChromeState` находит экран корня в его навигации.
+private struct TabRootMarker: UIViewControllerRepresentable {
+    let name: String
 
-    final class Controller: UIViewController {
-        var change: ((Int) -> Void)?
-        private var counted = false
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            if !counted { counted = true; change?(1) }
-        }
-        override func viewWillDisappear(_ animated: Bool) {
-            super.viewWillDisappear(animated)
-            if counted { counted = false; change?(-1) }
-        }
-    }
-    func makeUIViewController(context: Context) -> Controller {
-        let c = Controller()
-        c.change = change
+    func makeUIViewController(context: Context) -> TabRootController {
+        let c = TabRootController()
+        c.name = name
+        ChromeState.shared.register(c, root: name)
         return c
     }
-    func updateUIViewController(_ controller: Controller, context: Context) { controller.change = change }
+    func updateUIViewController(_ controller: TabRootController, context: Context) {}
+}
+
+final class TabRootController: UIViewController {
+    var name = ""
+    /// Запасной признак, если экран в навигации не нашёлся: по событиям появления (на iOS 16 они бывают не парами).
+    var appeared = false
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        appeared = true
+        ChromeState.shared.refreshAround(self)
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ChromeState.shared.refresh()
+    }
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        appeared = false
+        ChromeState.shared.refreshAround(self)
+    }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        ChromeState.shared.refresh()
+    }
+}
+
+/// Своя нижняя панель и мини-плеер над ней (iOS 14–25). Подписан только на `ChromeState`: переход между экранами
+/// перерисовывает лишь эту полоску, а не всё приложение.
+private struct BottomChrome: View {
+    @Binding var tab: AppTab
+    @Binding var showPlayer: Bool
+    @ObservedObject private var chrome = ChromeState.shared
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !chrome.chatOpen {
+                MiniPlayerView(style: .classic, showPlayer: $showPlayer)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if !chrome.hidden {
+                CapsuleTabBar(tab: $tab)
+                    .padding(.top, 2)
+                    .transition(.move(edge: .bottom))
+            }
+        }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .animation(.easeInOut(duration: 0.25), value: chrome.hidden)
+        .animation(.easeOut(duration: 0.2), value: chrome.chatOpen)
+    }
 }
 
 /// Своя нижняя панель (вместо системной, чтобы прятать её сразу и плавно): во всю ширину, как системная.
@@ -459,6 +478,7 @@ struct TopBarIcons: View {
     @State private var localTogether = false
 
     var body: some View {
+        let _ = RenderCount.hit("topbar")
         HStack(spacing: UIMetrics.isNarrow ? 2 : 6) {
             NavigationLink(destination: HistoryScreen()) { Image(systemName: "clock.arrow.circlepath").barHit() }
                 .accessibility(label: Text(L("history")))

@@ -199,10 +199,19 @@ final class ChatHub: ObservableObject {
 
     // MARK: - Чтение
 
+    private var changePending = false
+
+    /// Пачка событий от релеев (при подключении их приходят сотни) — одно обновление списка, а не по тяжёлому запросу
+    /// к базе на главном потоке на каждое событие: из-за этого приложение подвисало и нажатия терялись.
     private func changed() {
         DispatchQueue.main.async {
-            self.revision += 1
-            self.refresh()
+            guard !self.changePending else { return }
+            self.changePending = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                self.changePending = false
+                self.revision += 1
+                probeTime("chats.refresh") { self.refresh() }
+            }
         }
     }
 
@@ -311,7 +320,7 @@ final class ChatHub: ObservableObject {
         if let s = senders() { own["#p"] = Array(s) }
         liveSub = relays.subscribe([inboxFilter(me, since: since()), own]) { [weak self] e in
             guard let self = self else { return }
-            if e.pubkey == me { self.onOwnEvent(e) } else { self.onEvent(e) }
+            probeTime("chats.event", over: 8) { if e.pubkey == me { self.onOwnEvent(e) } else { self.onEvent(e) } }
         }
         retryOutbox()
         syncHistoryOnce()

@@ -7,6 +7,7 @@ struct SettingsScreen: View {
     @EnvironmentObject private var env: AppEnvironment
 
     var body: some View {
+        let _ = RenderCount.hit("settings")
         List { ThemedRows {
             Section(header: Text(L("settings_section_ui"))) {
                 settingsLink(L("appearance"), "paintpalette", AppearanceSettingsScreen(settings: env.prefs.settings))

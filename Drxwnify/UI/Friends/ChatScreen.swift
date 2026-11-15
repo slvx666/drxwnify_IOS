@@ -10,7 +10,9 @@ struct ChatScreen: View {
     @State private var messages: [ChatMessage] = []
     @State private var lines: [ChatLine] = []
     @State private var reactions: [String: [ChatReaction]] = [:]
-    @State private var text = ""
+    /// Набранный текст — отдельный объект, на который подписано только поле ввода: раньше каждая буква
+    /// перерисовывала весь чат, и на iPhone 8 клавиатура не успевала за пальцами.
+    @State private var draft = ChatDraft()
     @State private var replyTo: ChatMessage?
     @State private var editing: ChatMessage?
     @StateObject private var keyboard = KeyboardWatcher()
@@ -35,6 +37,7 @@ struct ChatScreen: View {
     private var name: String { friends.data[peer]?.name ?? friends.friends.first { $0.pubkey == peer }?.name ?? String(peer.prefix(8)) }
 
     var body: some View {
+        let _ = RenderCount.hit("chat")
         VStack(spacing: 0) {
             // Лента перевёрнута: новое — у нижнего края сразу, без прокрутки при открытии (раньше чат пролистывался
             // сверху вниз за несколько кадров). Каждая строка переворачивается обратно.
@@ -100,14 +103,14 @@ struct ChatScreen: View {
             ForwardSheet(messages: forwardingMany ?? [], from: peer).environmentObject(friends).environmentObject(chats)
         })
         .onAppear {
-            env.chatOpen = true
+            ChromeState.shared.chatOpen = true
             chats.openPeer = peer
             chats.hold("chat", true)
             reload()
             chats.markRead(peer)
         }
         .onDisappear {
-            env.chatOpen = false
+            ChromeState.shared.chatOpen = false
             if chats.openPeer == peer { chats.openPeer = nil }
             chats.hold("chat", false)
         }
@@ -212,7 +215,7 @@ struct ChatScreen: View {
             }
             actionRow(L("ios_forward"), "arrowshape.turn.up.right") { forwarding = m }
             actionRow(L("chat_select"), "checkmark.circle") { withAnimation(.easeOut(duration: 0.2)) { selection = [m.id] } }
-            if m.mine && !m.text.isEmpty { actionRow(L("ios_edit"), "pencil") { editing = m; replyTo = nil; text = m.text } }
+            if m.mine && !m.text.isEmpty { actionRow(L("ios_edit"), "pencil") { editing = m; replyTo = nil; draft.text = m.text } }
             if m.mine && m.state == ChatMessage.stateFailed { actionRow(L("retry"), "arrow.clockwise") { chats.retry(m) } }
             if m.mine { actionRow(L("ios_delete_for_both"), "trash", destructive: true) { chats.delete(m, forBoth: true) } }
             actionRow(L("ios_delete_for_me"), "trash.slash", destructive: true) { chats.delete(m, forBoth: false) }
@@ -469,7 +472,7 @@ struct ChatScreen: View {
         }
         Button(action: { forwarding = m }) { Label(L("ios_forward"), systemImage: "arrowshape.turn.up.right") }
         if m.mine && !m.text.isEmpty {
-            Button(action: { editing = m; replyTo = nil; text = m.text }) { Label(L("ios_edit"), systemImage: "pencil") }
+            Button(action: { editing = m; replyTo = nil; draft.text = m.text }) { Label(L("ios_edit"), systemImage: "pencil") }
         }
         if m.mine && m.state == ChatMessage.stateFailed {
             Button(action: { chats.retry(m) }) { Label(L("retry"), systemImage: "arrow.clockwise") }
@@ -522,43 +525,22 @@ struct ChatScreen: View {
                     Text(r.text.isEmpty ? (r.card?.label ?? "") : Stickers.plain(r.text)).font(.caption).lineLimit(1)
                     Spacer()
                     // Крестик с зоной нажатия 44×44 (раньше по нему было трудно попасть).
-                    Button(action: { replyTo = nil; if editing != nil { editing = nil; text = "" } }) {
+                    Button(action: { replyTo = nil; if editing != nil { editing = nil; draft.text = "" } }) {
                         Image(systemName: "xmark").font(.system(size: 17, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle())
                     }
                     .buttonStyle(BorderlessButtonStyle())
                 }
                 .padding(.horizontal, 12)
             }
-            if !suggestions.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        ForEach(suggestions, id: \.0.id) { s, n in
-                            StickerImage(id: s.id).stickerFrame(s.id, height: 52)
-                                .onTapGesture { useSuggestion(s, replacing: n) }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                }
-                .frame(height: 58)
-            }
+            DraftSuggestions(draft: draft, editing: editing != nil) { s, n in useSuggestion(s, replacing: n) }
             HStack(spacing: 8) {
                 Button(action: toggleStickers) {
                     Image(systemName: showStickers ? "keyboard" : "face.smiling").font(.system(size: 22)).frame(width: 34, height: 38)
                 }
                 .disabled(!chats.canWrite(peer))
-                TextField(chats.canWrite(peer) ? L("ios_message") : L("ios_chat_readonly"), text: $text)
-                    .padding(.horizontal, 12).frame(height: 38)
-                    .background(Capsule().fill(Color.secondary.opacity(0.18)))
-                    .disabled(!chats.canWrite(peer))
-                    .onChange(of: text) { t in if !t.isEmpty && editing == nil { chats.typingNow(peer) } }
-                if text.trimmingCharacters(in: .whitespaces).isEmpty && editing == nil {
-                    currentTrackButton
-                } else {
-                    Button(action: send) {
-                        Image(systemName: editing != nil ? "checkmark.circle.fill" : "arrow.up.circle.fill").font(.system(size: 30))
-                    }
-                    .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
+                DraftField(draft: draft, placeholder: chats.canWrite(peer) ? L("ios_message") : L("ios_chat_readonly"),
+                           canWrite: chats.canWrite(peer), editing: editing != nil,
+                           onTyping: { chats.typingNow(peer) }, send: send, trackButton: currentTrackButton)
             }
             .padding(.horizontal, 10)
             if showStickers {
@@ -584,10 +566,6 @@ struct ChatScreen: View {
         }
     }
 
-    private var suggestions: [(StickerStore.Sticker, Int)] {
-        editing == nil && !text.isEmpty ? StickerStore.suggest(text) : []
-    }
-
     /// Стикер из панели уходит сразу отдельным сообщением.
     private func sendSticker(_ s: StickerStore.Sticker) {
         chats.send(peer, text: StickerStore.token(s), replyTo: replyTo?.id)
@@ -596,16 +574,18 @@ struct ChatScreen: View {
 
     /// Подсказка заменяет набранный код; если кроме кода ничего нет — стикер уходит сразу.
     private func useSuggestion(_ s: StickerStore.Sticker, replacing n: Int) {
-        let rest = String(text.dropLast(n))
+        let rest = String(draft.text.dropLast(n))
         if rest.trimmingCharacters(in: .whitespaces).isEmpty {
-            text = ""
+            draft.text = ""
             sendSticker(s)
         } else {
-            text = rest + StickerStore.token(s)
+            draft.text = rest + StickerStore.token(s)
         }
     }
 
     private func send() {
+        let text = draft.text
+        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         if let e = editing {
             chats.edit(e, newText: text)
             editing = nil
@@ -613,14 +593,74 @@ struct ChatScreen: View {
             chats.send(peer, text: text, replyTo: replyTo?.id)
             replyTo = nil
         }
-        text = ""
+        draft.text = ""
     }
+
+    // Форматтеры одни на все пузыри: раньше каждый пузырь при каждой перерисовке создавал новый.
+    private static let todayFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f }()
+    private static let dayFormat: DateFormatter = { let f = DateFormatter(); f.dateFormat = "dd.MM HH:mm"; return f }()
 
     private func time(_ ms: Int64) -> String {
         let d = Date(timeIntervalSince1970: Double(ms) / 1000)
-        let f = DateFormatter()
-        f.dateFormat = Calendar.current.isDateInToday(d) ? "HH:mm" : "dd.MM HH:mm"
-        return f.string(from: d)
+        return (Calendar.current.isDateInToday(d) ? Self.todayFormat : Self.dayFormat).string(from: d)
+    }
+}
+
+final class ChatDraft: ObservableObject {
+    @Published var text = ""
+}
+
+/// Подсказки стикеров по набранному коду.
+private struct DraftSuggestions: View {
+    @ObservedObject var draft: ChatDraft
+    let editing: Bool
+    let use: (StickerStore.Sticker, Int) -> Void
+
+    var body: some View {
+        let list = editing || draft.text.isEmpty ? [] : StickerStore.suggest(draft.text)
+        if !list.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(list, id: \.0.id) { s, n in
+                        StickerImage(id: s.id).stickerFrame(s.id, height: 52)
+                            .onTapGesture { use(s, n) }
+                    }
+                }
+                .padding(.horizontal, 12)
+            }
+            .frame(height: 58)
+        }
+    }
+}
+
+/// Поле ввода и кнопка «отправить» (или текущий трек, пока поле пустое).
+private struct DraftField<TrackButton: View>: View {
+    @ObservedObject var draft: ChatDraft
+    let placeholder: String
+    let canWrite: Bool
+    let editing: Bool
+    let onTyping: () -> Void
+    let send: () -> Void
+    let trackButton: TrackButton
+
+    private var empty: Bool { draft.text.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            TextField(placeholder, text: $draft.text)
+                .padding(.horizontal, 12).frame(height: 38)
+                .background(Capsule().fill(Color.secondary.opacity(0.18)))
+                .disabled(!canWrite)
+                .onChange(of: draft.text) { t in if !t.isEmpty && !editing { onTyping() } }
+            if empty && !editing {
+                trackButton
+            } else {
+                Button(action: send) {
+                    Image(systemName: editing ? "checkmark.circle.fill" : "arrow.up.circle.fill").font(.system(size: 30))
+                }
+                .disabled(empty)
+            }
+        }
     }
 }
 

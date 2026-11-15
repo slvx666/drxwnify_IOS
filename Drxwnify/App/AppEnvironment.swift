@@ -24,21 +24,9 @@ final class AppEnvironment: ObservableObject {
     @Published var addToPlaylist: TrackBatch?
     /// Экран, который надо открыть поверх всего (ссылка, «перейти к альбому» из плеера).
     @Published var linkTarget: AppLinks.Target?
-    /// Сколько открытых экранов прячут панель вкладок («Вместе», чат — как на Android).
-    @Published var chromeHiders = 0
     /// Открыт ли лист поверх корня (экран по ссылке, отладочный лист): общие листы показывает самый верхний (`GlobalSheets`).
     /// Считается по состоянию, а не по onAppear/onDisappear — у содержимого листа onAppear бывает дважды.
     var sheetLevel: Int { linkTarget != nil || debugSheet != nil ? 1 : 0 }
-    /// Корни вкладок, которые сейчас на экране, и выбранная вкладка: своя нижняя панель видна только на корне (как на Android).
-    @Published var rootVisible = Set<String>()
-    @Published var currentTab = "home"
-    var chromeHidden: Bool {
-        if chromeHiders > 0 { return true }
-        if #available(iOS 26.0, *) { return false }
-        return !rootVisible.contains(currentTab)
-    }
-    /// Открыт чат: мини-плеер уходит, строка ввода стоит внизу (сообщил пользователь на 0.10.1).
-    @Published var chatOpen = false
     /// Кнопка «домой» в плеере: закрыть плеер и открыть главную.
     @Published var homeRequest = 0
     /// Отладка без нажатий (`DRX_SCREEN` при запуске с ноута): что открыть. Пользователям не видно.
