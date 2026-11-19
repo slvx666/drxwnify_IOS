@@ -205,3 +205,7 @@
 "ios_ytm_info_ask" = "Ask in Suggestions";
 "ios_history_local" = "Local";
 "ios_scroll_down" = "Scroll down";
+"ios_newreleases_empty" = "Nothing yet: new releases will appear here once artists drop albums";
+"ios_newreleases_empty_following" = "No subscriptions yet: follow artists and their new releases will appear here";
+"ios_newreleases_empty_discover" = "No discoveries yet";
+"ios_newreleases_error" = "Couldn't load new releases";

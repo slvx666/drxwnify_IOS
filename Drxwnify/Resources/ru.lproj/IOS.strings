@@ -205,3 +205,7 @@
 "ios_ytm_info_ask" = "Попросить в предложке";
 "ios_history_local" = "Локальная";
 "ios_scroll_down" = "Вниз";
+"ios_newreleases_empty" = "Пока пусто: новые релизы появятся здесь, когда исполнители выложат альбомы";
+"ios_newreleases_empty_following" = "Подписки пусты: подпишись на исполнителей, и их новинки появятся здесь";
+"ios_newreleases_empty_discover" = "Открытия пусты";
+"ios_newreleases_error" = "Не удалось загрузить новинки";

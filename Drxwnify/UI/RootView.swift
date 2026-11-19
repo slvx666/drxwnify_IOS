@@ -60,7 +60,7 @@ struct RootView: View {
                     .modifier(ThemedRoot(theme: AppTheme.current))
             })
             .onChange(of: tab) { ChromeState.shared.currentTab = Self.name($0) }
-            .onChange(of: env.homeRequest) { _ in
+            .onReceive(env.homeRequest) { _ in
                 showPlayer = false
                 tab = .home
             }
@@ -178,6 +178,7 @@ struct RootView: View {
         case "integrations": IntegrationsScreen(settings: env.prefs.settings)
         case "together": TogetherScreen()
         case "stats": StatsScreen()
+        case "newreleases": NewReleasesScreen()
         case "history": HistoryScreen()
         case "concerts": List { ConcertsSection() }.listStyle(PlainListStyle())
         default: Text(env.debugSheet ?? "")

@@ -185,6 +185,10 @@ struct PlayerSettingsScreen: View {
                     }
                 }
                 Toggle(L("varispeed"), isOn: Binding(get: { player.pitchFollowsRate }, set: { player.setPitchFollowsRate($0) }))
+                Toggle(L("play_over_other_audio"), isOn: Binding(
+                    get: { !(settings.get(PK.audioFocusEnabled) ?? true) },
+                    set: { settings.set(PK.audioFocusEnabled, !$0); player.applySessionCategory() }
+                ))
             }
             Section(header: Text(L("sleep_timer"))) {
                 Stepper(value: Binding(get: { Int(settings.get(PK.sleepTimerDefault) ?? 30) },
@@ -245,6 +249,7 @@ struct ContentSettingsScreen: View {
             }
             Section(header: Text(L("misc"))) {
                 PrefToggle(title: L("randomize_home_order"), key: PK.randomizeHomeOrder, defaultValue: false, settings: settings)
+                PrefToggle(title: L("show_wrapped_card"), key: PK.showWrappedCard, defaultValue: true, settings: settings)
                 PrefChoice(title: L("top_length"), key: PK.topSize, defaultValue: "50",
                            options: ["10", "20", "50", "100"].map { ($0, $0) }, settings: settings)
             }
@@ -451,12 +456,18 @@ struct VkAccountScreen: View {
 struct PrivacySettingsScreen: View {
     @ObservedObject var settings: TypedStore
     @EnvironmentObject private var friends: FriendsHub
+    @State private var confirmClear = false
+    @State private var clearingListen = false
 
     var body: some View {
         List { ThemedRows {
-            Section {
+            Section(header: Text(L("listen_history"))) {
                 PrefToggle(title: L("pause_listen_history"), key: PK.pauseListenHistory, defaultValue: false, settings: settings)
+                Button(L("clear_listen_history")) { clearingListen = true; confirmClear = true }.foregroundColor(.red)
+            }
+            Section(header: Text(L("search_history"))) {
                 PrefToggle(title: L("pause_search_history"), key: PK.pauseSearchHistory, defaultValue: false, settings: settings)
+                Button(L("clear_search_history")) { clearingListen = false; confirmClear = true }.foregroundColor(.red)
             }
             if friends.hasProfile {
                 Section(header: Text(L("friends_title"))) {
@@ -468,6 +479,17 @@ struct PrivacySettingsScreen: View {
         .listStyle(InsetGroupedListStyle())
         .listMiniPlayerSpace()
         .navigationTitle(L("privacy"))
+        .alert(isPresented: $confirmClear) {
+            let lib = AppEnvironment.shared.library
+            return Alert(
+                title: Text(clearingListen ? L("clear_listen_history") : L("clear_search_history")),
+                message: Text(clearingListen ? L("clear_listen_history_confirm") : L("clear_search_history_confirm")),
+                primaryButton: .destructive(Text(clearingListen ? L("clear_listen_history") : L("clear_search_history"))) {
+                    if clearingListen { lib.clearListenHistory() } else { lib.clearSearchHistory() }
+                },
+                secondaryButton: .cancel()
+            )
+        }
     }
 }
 

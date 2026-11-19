@@ -86,7 +86,7 @@ private struct HomeContent: View {
         } else {
             if let grid = model.forYou, !grid.isEmpty { forYouSection(grid) }
             if !model.newReleases.isEmpty {
-                section(L("home_new_releases")) { AlbumCardsRow(albums: model.newReleases, showAge: true) }
+                section(L("home_new_releases"), link: AnyView(NewReleasesScreen())) { AlbumCardsRow(albums: model.newReleases, showAge: true) }
             }
             if let albums = data?.unheardAlbums, !albums.isEmpty {
                 section(L("home_unheard_albums"), label: L("home_unheard_albums_label")) { AlbumCardsRow(albums: albums, showAge: false) }
@@ -150,7 +150,9 @@ private struct HomeContent: View {
     }
 
     /// Заголовок ряда как на Android: мелкая подпись сверху, крупный заголовок цветом акцента.
+    /// `link` — полноэкранный экран за неброским шевроном «›» у заголовка (новинки на Android: `new_release`).
     private func section<Content: View>(_ title: String, label: String? = nil, image: String? = nil, artistId: String? = nil,
+                                        link: AnyView? = nil,
                                         @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
@@ -163,7 +165,17 @@ private struct HomeContent: View {
                     if let label = label {
                         Text(label).font(.caption).foregroundColor(.secondary).lineLimit(2)
                     }
-                    Text(title).font(.title3.weight(.bold)).foregroundColor(.accentColor).lineLimit(2)
+                    if let link = link {
+                        NavigationLink(destination: link) {
+                            HStack(spacing: 5) {
+                                Text(title).font(.title3.weight(.bold)).foregroundColor(.accentColor).lineLimit(2)
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundColor(.secondary)
+                            }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                    } else {
+                        Text(title).font(.title3.weight(.bold)).foregroundColor(.accentColor).lineLimit(2)
+                    }
                 }
             }
             .padding(.horizontal, 16)

@@ -5,7 +5,7 @@ import UIKit
 ///
 /// На SwiftUI (`ScrollView(.horizontal)` + `Button`) на iOS 16 нажатия в таком ряду массово терялись: журнал касаний
 /// показал, что палец попадал точно в капсулу, главный поток был свободен, но жест кнопки SwiftUI к касанию даже не
-/// подключался — фильтры поиска срабатывали с десятой попытки. `UIButton` в `UIScrollView` получает касание напрямую.
+/// подключался — фильтры поиска срабатывали с десятой попытки. UIKit-нажатие на прокрутке срабатывает надёжно.
 struct ChipBar: UIViewRepresentable {
     struct Item: Equatable {
         let id: String
@@ -24,9 +24,6 @@ struct ChipBar: UIViewRepresentable {
         let scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
         scroll.showsVerticalScrollIndicator = false
-        // Касание уходит кнопке сразу, без задержки на «а вдруг это прокрутка»; сдвиг пальца всё равно прокручивает.
-        scroll.delaysContentTouches = false
-        scroll.canCancelContentTouches = true
         scroll.alwaysBounceVertical = false
         scroll.backgroundColor = .clear
         let stack = UIStackView()
@@ -43,6 +40,7 @@ struct ChipBar: UIViewRepresentable {
             stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
         ])
         context.coordinator.stack = stack
+        context.coordinator.attach(scroll)
         return scroll
     }
 
@@ -56,49 +54,72 @@ struct ChipBar: UIViewRepresentable {
     final class Coordinator: NSObject {
         weak var stack: UIStackView?
         var items: [Item] = []
-        var buttons: [UIButton] = []
+        var chips: [UILabel] = []
         var onSelect: (String) -> Void = { _ in }
+
+        /// Капсулы — просто подписи; нажатие ловит один `UITapGestureRecognizer` на всей прокрутке. Так ряд листается,
+        /// даже если палец лёг на капсулу (с `UIButton` прокрутка с капсулы не начиналась — журнал 0.12.9), а сдвиг
+        /// пальца отменяет нажатие сам.
+        func attach(_ scroll: UIScrollView) {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
+            tap.cancelsTouchesInView = false
+            scroll.addGestureRecognizer(tap)
+        }
 
         func rebuild(_ items: [Item], height: CGFloat) {
             self.items = items
-            buttons.forEach { $0.removeFromSuperview() }
-            buttons = items.enumerated().map { i, item in
-                let b = UIButton(type: .custom)
-                b.tag = i
-                b.setTitle(item.title, for: .normal)
+            chips.forEach { $0.removeFromSuperview() }
+            chips = items.map { item in
+                let l = PaddedLabel()
+                l.text = item.title
                 let size = UIFont.preferredFont(forTextStyle: .subheadline).pointSize
-                b.titleLabel?.font = AppTheme.current.monospaced
+                l.font = AppTheme.current.monospaced
                     ? .monospacedSystemFont(ofSize: size, weight: .medium) : .systemFont(ofSize: size, weight: .medium)
-                b.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-                b.layer.cornerRadius = height / 2
-                b.layer.cornerCurve = .continuous
-                b.clipsToBounds = true
-                b.translatesAutoresizingMaskIntoConstraints = false
-                b.heightAnchor.constraint(equalToConstant: height).isActive = true
-                b.addTarget(self, action: #selector(tap(_:)), for: .touchUpInside)
-                b.addTarget(self, action: #selector(press(_:)), for: [.touchDown, .touchDragEnter])
-                b.addTarget(self, action: #selector(release(_:)), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
-                stack?.addArrangedSubview(b)
-                return b
+                l.textAlignment = .center
+                l.layer.cornerRadius = height / 2
+                l.layer.cornerCurve = .continuous
+                l.clipsToBounds = true
+                l.isAccessibilityElement = true
+                l.translatesAutoresizingMaskIntoConstraints = false
+                l.heightAnchor.constraint(equalToConstant: height).isActive = true
+                stack?.addArrangedSubview(l)
+                return l
             }
         }
 
         func style(selected: String?) {
             let accent = AppTheme.current.palette.map { UIColor(hex: $0.accent) } ?? UIColor(Color.accentColor)
-            for (i, b) in buttons.enumerated() {
+            for (i, l) in chips.enumerated() {
                 let on = items[i].id == selected
-                b.backgroundColor = on ? accent : UIColor.secondaryLabel.withAlphaComponent(0.2)
-                b.setTitleColor(on ? .systemBackground : .label, for: .normal)
-                b.accessibilityTraits = on ? [.button, .selected] : .button
+                l.backgroundColor = on ? accent : UIColor.secondaryLabel.withAlphaComponent(0.2)
+                l.textColor = on ? .systemBackground : .label
+                l.accessibilityTraits = on ? [.button, .selected] : .button
             }
         }
 
-        @objc private func tap(_ b: UIButton) {
-            guard items.indices.contains(b.tag) else { return }
-            onSelect(items[b.tag].id)
+        @objc private func tapped(_ g: UITapGestureRecognizer) {
+            guard g.state == .ended else { return }
+            // Ближайшая капсула по горизонтали: промах в щель между ними тоже засчитывается соседней.
+            var best: (Int, CGFloat)?
+            for (i, l) in chips.enumerated() {
+                let x = g.location(in: l).x
+                let d = x < 0 ? -x : max(0, x - l.bounds.width)
+                if d <= 6, best == nil || d < best!.1 { best = (i, d) }
+            }
+            guard let i = best?.0 else { return }
+            let l = chips[i]
+            l.alpha = 0.6
+            UIView.animate(withDuration: 0.2) { l.alpha = 1 }
+            onSelect(items[i].id)
         }
+    }
+}
 
-        @objc private func press(_ b: UIButton) { b.alpha = 0.6 }
-        @objc private func release(_ b: UIButton) { UIView.animate(withDuration: 0.15) { b.alpha = 1 } }
+/// Подпись с отступами слева и справа — капсула фильтра.
+private final class PaddedLabel: UILabel {
+    var inset: CGFloat = 16
+    override var intrinsicContentSize: CGSize {
+        let s = super.intrinsicContentSize
+        return CGSize(width: s.width + inset * 2, height: s.height)
     }
 }

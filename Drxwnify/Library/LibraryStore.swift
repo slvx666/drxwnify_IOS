@@ -223,6 +223,30 @@ final class LibraryStore: ObservableObject {
         return raw
     }
 
+    /// Очистить историю прослушивания (Android: `DELETE FROM event`).
+    func clearListenHistory() {
+        try? database.pool.write { try $0.execute(sql: "DELETE FROM event") }
+        changed()
+    }
+
+    /// Очистить историю поиска (Android: `DELETE FROM search_history`).
+    func clearSearchHistory() {
+        try? database.pool.write { try $0.execute(sql: "DELETE FROM search_history") }
+        changed()
+    }
+
+    /// Все подписки (Android: `artist.bookmarkedAt`): имена в нижнем регистре и id — для раскладки новинок по вкладкам.
+    func subscribedArtistKeys() -> Set<String> {
+        read(Set<String>()) { db in
+            var out = Set<String>()
+            for row in try Row.fetchAll(db, sql: "SELECT name, spotifyId FROM artist WHERE bookmarkedAt IS NOT NULL") {
+                if let name = row["name"] as String? { out.insert(name.lowercased()) }
+                if let sid = row["spotifyId"] as String? { out.insert(sid) }
+            }
+            return out
+        }
+    }
+
     /// Подписка на исполнителя на этом телефоне (Android: `artist.bookmarkedAt`, id `SP_<id Spotify>`).
     func isArtistBookmarked(spotifyId: String) -> Bool {
         read(false) { db in
@@ -248,6 +272,9 @@ final class LibraryStore: ObservableObject {
     struct Stats {
         var totalMs: Int64 = 0
         var plays = 0
+        var trackCount = 0
+        var artistCount = 0
+        var albumCount = 0
         var tracks: [(track: Track, plays: Int, ms: Int64)] = []
         var artists: [(name: String, id: String?, image: String?, plays: Int, ms: Int64)] = []
         var albums: [(name: String, id: String?, image: String?, artist: String, ms: Int64)] = []
@@ -260,6 +287,10 @@ final class LibraryStore: ObservableObject {
             if let r = try Row.fetchOne(db, sql: "SELECT COUNT(*) AS n, COALESCE(SUM(playTime), 0) AS ms FROM event WHERE timestamp >= ? AND timestamp < ?", arguments: [sinceMs, untilMs]) {
                 out.plays = r["n"]; out.totalMs = r["ms"]
             }
+            // Счётчики для заголовков разделов (Android: «869 Композиции», «7 Исполнители», «0 Альбомы»).
+            out.trackCount = (try? Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT e.songId) FROM event e WHERE e.timestamp >= ? AND e.timestamp < ?", arguments: [sinceMs, untilMs])) ?? 0
+            out.artistCount = (try? Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT m.artistId) FROM event e JOIN song_artist_map m ON m.songId = e.songId AND m.position = 0 WHERE e.timestamp >= ? AND e.timestamp < ?", arguments: [sinceMs, untilMs])) ?? 0
+            out.albumCount = (try? Int.fetchOne(db, sql: "SELECT COUNT(DISTINCT s.albumName) FROM event e JOIN song s ON s.id = e.songId WHERE e.timestamp >= ? AND e.timestamp < ? AND s.albumName IS NOT NULL AND s.albumName != ''", arguments: [sinceMs, untilMs])) ?? 0
             let rows = try Row.fetchAll(db, sql: """
                 SELECT \(Self.songColumns), COUNT(*) AS n, SUM(e.playTime) AS ms FROM event e JOIN song ON song.id = e.songId
                 WHERE e.timestamp >= ? AND e.timestamp < ? GROUP BY song.id ORDER BY n DESC, ms DESC LIMIT ?

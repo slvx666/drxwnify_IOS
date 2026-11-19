@@ -88,8 +88,17 @@ final class PlayerController: NSObject, ObservableObject {
         player.volume = settings.get(PK.playerVolume) ?? 1
         observePlayer()
         setupRemoteCommands()
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
+        applySessionCategory()
         restoreQueue()
+    }
+
+    /// «Играть поверх других приложений» (Android: выключенный `audioFocusEnabled`): на iOS это `.mixWithOthers` —
+    /// звук других приложений смешивается с нашим, музыка не встаёт на паузу.
+    func applySessionCategory() {
+        let playOverOthers = !(settings.get(PK.audioFocusEnabled) ?? true)
+        let options: AVAudioSession.CategoryOptions = playOverOthers ? [.mixWithOthers] : []
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: options)
+        activateSession()
     }
 
     // MARK: - Очередь: запуск

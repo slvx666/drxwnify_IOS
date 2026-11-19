@@ -27,8 +27,9 @@ final class AppEnvironment: ObservableObject {
     /// Открыт ли лист поверх корня (экран по ссылке, отладочный лист): общие листы показывает самый верхний (`GlobalSheets`).
     /// Считается по состоянию, а не по onAppear/onDisappear — у содержимого листа onAppear бывает дважды.
     var sheetLevel: Int { linkTarget != nil || debugSheet != nil ? 1 : 0 }
-    /// Кнопка «домой» в плеере: закрыть плеер и открыть главную.
-    @Published var homeRequest = 0
+    /// Кнопка «домой» в плеере: закрыть плеер и открыть главную. Событие, а не `@Published`: иначе нажатие сначала
+    /// перерисовывало всё приложение (вместе с открытым плеером) и только потом лист начинал закрываться.
+    let homeRequest = PassthroughSubject<Void, Never>()
     /// Отладка без нажатий (`DRX_SCREEN` при запуске с ноута): что открыть. Пользователям не видно.
     @Published var debugSearch: String?
     @Published var debugLibraryFilter: String?

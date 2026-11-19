@@ -136,7 +136,8 @@ struct PlayerScreen: View {
                 }
             }
             Spacer()
-            Button(action: { env.homeRequest += 1 }) {
+            // Лист закрывается сразу, вкладка «Главная» выбирается параллельно (раньше лист ждал перерисовки корня).
+            Button(action: { presentation.wrappedValue.dismiss(); env.homeRequest.send() }) {
                 // Клетка больше значка: по журналу палец часто попадал рядом с ним.
                 Image(systemName: "house").font(.title3).frame(width: 56, height: 52).contentShape(Rectangle())
             }

@@ -3,7 +3,7 @@ import SwiftUI
 /// «Статистика» (HOME-100…104): сколько слушал, топ исполнителей, треков и альбомов за выбранный срок.
 struct StatsScreen: View {
     @EnvironmentObject private var env: AppEnvironment
-    @State private var range = 1
+    @State private var range = 2
     @State private var stats = LibraryStore.Stats()
     @State private var showWrapped = false
     @State private var query = ""
@@ -22,12 +22,15 @@ struct StatsScreen: View {
             : stats.albums.filter { $0.name.lowercased().contains(q) || $0.artist.lowercased().contains(q) }
     }
 
-    private static let ranges: [(String, Double)] = [("ios_stats_week", 7), ("ios_stats_month", 30), ("ios_stats_year", 365), ("all_time", 0)]
+    /// Периоды как на Android («Непрерывно / 1 неделя / 1 месяц / 3 месяца»); 0 дней — за всё время.
+    private var ranges: [(String, Double)] {
+        [(L("continuous"), 0), (LPlural("n_week", 1), 7), (LPlural("n_month", 1), 30), (LPlural("n_month", 3), 90)]
+    }
 
     var body: some View {
         List {
             Picker("", selection: $range) {
-                ForEach(Self.ranges.indices, id: \.self) { i in Text(L(Self.ranges[i].0)).tag(i) }
+                ForEach(ranges.indices, id: \.self) { i in Text(ranges[i].0).tag(i) }
             }
             .pickerStyle(SegmentedPickerStyle())
             .listRowBackground(Color.clear)
@@ -41,15 +44,17 @@ struct StatsScreen: View {
             }
             .listRowBackground(Color.clear)
 
-            Button(action: { showWrapped = true }) {
-                Label("Wrapped " + String(Calendar.current.component(.year, from: Date())), systemImage: "sparkles")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .foregroundColor(Color(.systemBackground))
-                    .background(Capsule().fill(Color.accentColor))
+            if env.prefs.settings.get(PK.showWrappedCard) ?? true {
+                Button(action: { showWrapped = true }) {
+                    Label("Wrapped " + String(Calendar.current.component(.year, from: Date())), systemImage: "sparkles")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundColor(Color(.systemBackground))
+                        .background(Capsule().fill(Color.accentColor))
+                }
+                .buttonStyle(PlainButtonStyle())
+                .listRowBackground(Color.clear)
             }
-            .buttonStyle(PlainButtonStyle())
-            .listRowBackground(Color.clear)
 
             // «Плейлисты»: как авто-плейлист Android «Самые прослушиваемые за неделю».
             if q.isEmpty {
@@ -66,29 +71,32 @@ struct StatsScreen: View {
                     .themedRow()
                 }
             }
-            if !artists.isEmpty {
-                Section(header: Text(L("artists"))) {
+            // Заголовки с числом записей как на Android («869 Композиции», «7 Исполнители», «0 Альбомы»); разделы видны всегда.
+            if q.isEmpty || !artists.isEmpty {
+                Section(header: Text("\(stats.artistCount) \(L("artists"))")) {
                     ForEach(Array(artists.enumerated()), id: \.offset) { i, a in
                         row(i + 1, a.image, a.name, "\(LPlural("n_time", a.plays)) • \(minutes(a.ms))", circle: true,
                             link: a.id.map { AppLinks.Target(kind: .artist, id: $0, title: a.name, by: nil) })
                     }
                 }
             }
-            if !tracks.isEmpty {
-                Section(header: Text(L("songs"))) {
-                    let list = tracks.map { $0.track }
-                    TrackPlayShuffleRow(tracks: q.isEmpty ? stats.tracks.map { $0.track } : list, queueTitle: L("most_played_songs"))
-                    ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
-                        TrackRow(track: t.track, context: list, index: i, queueTitle: L("most_played_songs"),
-                                 subtitle: "\(t.track.artistNames) • \(LPlural("n_time", t.plays)) • \(minutes(t.ms))")
+            if q.isEmpty || !tracks.isEmpty {
+                Section(header: Text("\(stats.trackCount) \(L("songs"))")) {
+                    if !tracks.isEmpty {
+                        let list = tracks.map { $0.track }
+                        TrackPlayShuffleRow(tracks: q.isEmpty ? stats.tracks.map { $0.track } : list, queueTitle: L("most_played_songs"))
+                        ForEach(Array(tracks.enumerated()), id: \.offset) { i, t in
+                            TrackRow(track: t.track, context: list, index: i, queueTitle: L("most_played_songs"),
+                                     subtitle: "\(t.track.artistNames) • \(LPlural("n_time", t.plays)) • \(minutes(t.ms))")
+                        }
                     }
                 }
             }
             if !q.isEmpty && artists.isEmpty && tracks.isEmpty && albums.isEmpty {
                 Text(L("no_results_found")).foregroundColor(.secondary).listRowBackground(Color.clear)
             }
-            if !albums.isEmpty {
-                Section(header: Text(L("albums"))) {
+            if q.isEmpty || !albums.isEmpty {
+                Section(header: Text("\(stats.albumCount) \(L("albums"))")) {
                     ForEach(Array(albums.enumerated()), id: \.offset) { i, a in
                         row(i + 1, a.image, a.name, "\(a.artist) • \(minutes(a.ms))", circle: false,
                             link: a.id.flatMap { id in id.isEmpty ? nil : AppLinks.Target(kind: .album, id: id, title: a.name, by: nil) })
@@ -111,7 +119,7 @@ struct StatsScreen: View {
     private func minutes(_ ms: Int64) -> String { L("wrapped_artist_listening_time", Int(ms / 60_000)) }
 
     private func reload() {
-        let days = Self.ranges[range].1
+        let days = ranges[range].1
         let since: Int64 = days > 0 ? Int64((Date().timeIntervalSince1970 - days * 86_400) * 1000) : 0
         let lib = env.library
         DispatchQueue.global(qos: .userInitiated).async {
