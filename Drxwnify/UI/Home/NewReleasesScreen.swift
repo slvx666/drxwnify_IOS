@@ -32,6 +32,7 @@ struct NewReleasesScreen: View {
                 ], selected: tab.rawValue) { id in
                     if let t = NewReleasesModel.Tab(rawValue: id) { tab = t }
                 }
+                .frame(height: 34)
 
                 if albums.isEmpty {
                     emptyState
